@@ -19,17 +19,18 @@ class Orchestrator:
     
     def __init__(self, config_path: str):
         self.config = self._load_config(config_path)
-        self.registry = Registry(self.config.get("registry", {}))
-        self.pareto = ParetoFrontier(self.config.get("pareto", {}))
-        self.metrics = MetricsCollector(self.config.get("metrics", {}))
-        self.agents = self._initialize_agents()
-        self.logger = logging.getLogger("orchestrator")
         
-        # Setup logging
+        # Setup logging first
+        self.logger = logging.getLogger("orchestrator")
         logging.basicConfig(
             level=getattr(logging, self.config.get("log_level", "INFO")),
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
+        
+        self.registry = Registry(self.config.get("registry", {}))
+        self.pareto = ParetoFrontier(self.config.get("pareto", {}))
+        self.metrics = MetricsCollector(self.config.get("metrics", {}))
+        self.agents = self._initialize_agents()
     
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load configuration from YAML file."""

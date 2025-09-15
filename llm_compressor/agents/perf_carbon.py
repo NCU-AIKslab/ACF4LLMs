@@ -3,6 +3,8 @@
 import time
 import psutil
 import numpy as np
+import requests
+import json
 from typing import Dict, Any, List, Optional
 import subprocess
 import logging
@@ -83,13 +85,77 @@ class PerfCarbonAgent(BaseAgent):
                 return False
     
     def _measure_latency(self, model_path: str, recipe: Dict[str, Any]) -> Dict[str, float]:
-        """Measure inference latency."""
+        """Measure inference latency using real vLLM API calls."""
         self.logger.info("Measuring latency...")
         
-        # Mock latency measurement - in real implementation, load model and benchmark
-        sequence_length = self.config.get("sequence_length", 512)
-        batch_size = self.config.get("batch_size", 1)
-        
+        try:
+            # Try to connect to vLLM API server
+            vllm_url = "http://localhost:8000"
+            
+            # Check if server is running
+            try:
+                health_response = requests.get(f"{vllm_url}/health", timeout=5)
+                if health_response.status_code != 200:
+                    raise ConnectionError("vLLM server not healthy")
+            except:
+                self.logger.warning("vLLM server not available, using mock measurements")
+                return self._mock_latency_measurement(recipe)
+            
+            # Prepare test prompts
+            test_prompts = [
+                "The quick brown fox",
+                "Machine learning is",
+                "In the year 2024",
+                "Artificial intelligence",
+                "Large language models"
+            ]
+            
+            latencies = []
+            
+            # Run benchmark tests
+            for prompt in test_prompts:
+                for _ in range(5):  # 5 runs per prompt
+                    start_time = time.time()
+                    
+                    response = requests.post(
+                        f"{vllm_url}/v1/completions",
+                        json={
+                            "model": self._get_model_name_from_path(model_path),
+                            "prompt": prompt,
+                            "max_tokens": 50,
+                            "temperature": 0.0,
+                            "stream": False
+                        },
+                        timeout=30
+                    )
+                    
+                    end_time = time.time()
+                    
+                    if response.status_code == 200:
+                        latency_ms = (end_time - start_time) * 1000
+                        latencies.append(latency_ms)
+                    else:
+                        self.logger.warning(f"API request failed: {response.status_code}")
+            
+            if not latencies:
+                self.logger.warning("No successful API calls, using mock measurements")
+                return self._mock_latency_measurement(recipe)
+            
+            return {
+                "latency_mean_ms": np.mean(latencies),
+                "latency_p50_ms": np.percentile(latencies, 50),
+                "latency_p95_ms": np.percentile(latencies, 95),
+                "latency_p99_ms": np.percentile(latencies, 99),
+                "latency_std_ms": np.std(latencies),
+                "sample_count": len(latencies)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Real latency measurement failed: {e}")
+            return self._mock_latency_measurement(recipe)
+    
+    def _mock_latency_measurement(self, recipe: Dict[str, Any]) -> Dict[str, float]:
+        """Fallback mock latency measurement."""
         # Simulate latency based on optimizations
         base_latency = 100.0  # Base latency in ms
         
@@ -118,8 +184,18 @@ class PerfCarbonAgent(BaseAgent):
             "latency_p50_ms": np.percentile(latencies, 50),
             "latency_p95_ms": np.percentile(latencies, 95),
             "latency_p99_ms": np.percentile(latencies, 99),
-            "latency_std_ms": np.std(latencies)
+            "latency_std_ms": np.std(latencies),
+            "mock": True
         }
+    
+    def _get_model_name_from_path(self, model_path: str) -> str:
+        """Extract model name from path for API calls."""
+        if "openai-community/gpt2" in model_path:
+            return "openai-community/gpt2"
+        elif "google/gemma" in model_path:
+            return "google/gemma-2b"
+        else:
+            return "openai-community/gpt2"  # fallback
     
     def _measure_throughput(self, model_path: str, recipe: Dict[str, Any]) -> Dict[str, float]:
         """Measure throughput (tokens/second)."""
@@ -152,6 +228,26 @@ class PerfCarbonAgent(BaseAgent):
         """Measure memory usage."""
         self.logger.info("Measuring memory usage...")
         
+        try:
+            # Real GPU memory monitoring
+            gpu_memory = self._get_real_gpu_memory()
+            cpu_memory = self._get_real_cpu_memory()
+            
+            # If we have real measurements, use them
+            if gpu_memory or cpu_memory:
+                return {
+                    **gpu_memory,
+                    **cpu_memory,
+                    "measurement_type": "real"
+                }
+        except Exception as e:
+            self.logger.error(f"Real memory measurement failed: {e}")
+        
+        # Fallback to mock measurement
+        return self._mock_memory_measurement(recipe)
+    
+    def _mock_memory_measurement(self, recipe: Dict[str, Any]) -> Dict[str, float]:
+        """Fallback mock memory measurement."""
         # Base VRAM usage (GB) 
         base_vram = 40.0  # For Llama-3-8B
         
@@ -180,8 +276,66 @@ class PerfCarbonAgent(BaseAgent):
             "vram_peak_gb": base_vram,
             "vram_allocated_gb": base_vram * 0.9,
             "kv_cache_memory_gb": kv_cache_memory,
-            "system_memory_gb": psutil.virtual_memory().used / (1024**3)
+            "system_memory_gb": psutil.virtual_memory().used / (1024**3),
+            "measurement_type": "mock"
         }
+    
+    def _get_real_gpu_memory(self) -> Dict[str, float]:
+        """Get real GPU memory usage."""
+        try:
+            import GPUtil
+            gpus = GPUtil.getGPUs()
+            
+            if gpus:
+                gpu = gpus[0]  # Use first GPU
+                return {
+                    "gpu_memory_used_gb": gpu.memoryUsed / 1024,
+                    "gpu_memory_total_gb": gpu.memoryTotal / 1024,
+                    "gpu_memory_utilization": gpu.memoryUtil * 100,
+                    "gpu_utilization": gpu.load * 100
+                }
+        except ImportError:
+            # Try with nvidia-ml-py
+            try:
+                import pynvml
+                pynvml.nvmlInit()
+                handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+                
+                mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+                
+                return {
+                    "gpu_memory_used_gb": mem_info.used / (1024**3),
+                    "gpu_memory_total_gb": mem_info.total / (1024**3),
+                    "gpu_memory_utilization": (mem_info.used / mem_info.total) * 100,
+                    "gpu_utilization": util.gpu
+                }
+            except:
+                pass
+        except:
+            pass
+        
+        return {}
+    
+    def _get_real_cpu_memory(self) -> Dict[str, float]:
+        """Get real CPU memory usage."""
+        try:
+            # System memory
+            memory = psutil.virtual_memory()
+            
+            # Process memory (current process)
+            process = psutil.Process()
+            process_mem = process.memory_info()
+            
+            return {
+                "cpu_memory_used_gb": memory.used / (1024**3),
+                "cpu_memory_total_gb": memory.total / (1024**3),
+                "cpu_memory_utilization": memory.percent,
+                "process_memory_gb": process_mem.rss / (1024**3)
+            }
+        except Exception as e:
+            self.logger.warning(f"CPU memory measurement failed: {e}")
+            return {}
     
     def _measure_energy_consumption(self, model_path: str, recipe: Dict[str, Any]) -> Dict[str, float]:
         """Measure energy consumption."""

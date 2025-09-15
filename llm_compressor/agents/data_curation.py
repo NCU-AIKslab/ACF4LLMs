@@ -2,6 +2,9 @@
 
 import json
 import random
+import re
+import time
+import requests
 from typing import Dict, Any, List, Optional
 import logging
 from pathlib import Path
@@ -112,18 +115,73 @@ class DataCurationAgent(BaseAgent):
     
     def _load_calibration_dataset(self) -> List[Dict[str, Any]]:
         """Load calibration dataset (C4 subset)."""
-        # In real implementation, load from HuggingFace or local files
-        # For now, generate mock data
+        try:
+            from datasets import load_dataset
+            
+            self.logger.info("Loading C4 calibration dataset from HuggingFace")
+            
+            # Load C4 dataset subset for calibration
+            dataset = load_dataset("c4", "en", split="validation", streaming=True)
+            
+            samples = []
+            for i, sample in enumerate(dataset):
+                if i >= 2000:  # Limit to 2000 samples
+                    break
+                
+                text = sample["text"]
+                if len(text) > 50:  # Filter very short texts
+                    samples.append({
+                        "text": text,
+                        "source": "c4",
+                        "length": len(text.split())
+                    })
+            
+            self.logger.info(f"Loaded {len(samples)} C4 calibration samples")
+            return samples
+            
+        except ImportError:
+            self.logger.warning("HuggingFace datasets not available, using local text files")
+            return self._load_local_calibration_data()
+        except Exception as e:
+            self.logger.error(f"Failed to load C4 dataset: {e}, falling back to mock data")
+            return self._generate_mock_calibration_data()
+    
+    def _load_local_calibration_data(self) -> List[Dict[str, Any]]:
+        """Load calibration data from local text files."""
+        samples = []
+        data_dir = Path("/tmp/calibration_data")
         
+        if data_dir.exists():
+            for text_file in data_dir.glob("*.txt"):
+                try:
+                    with open(text_file, 'r', encoding='utf-8') as f:
+                        text = f.read().strip()
+                        if len(text) > 100:
+                            samples.append({
+                                "text": text,
+                                "source": f"local_{text_file.stem}",
+                                "length": len(text.split())
+                            })
+                except Exception as e:
+                    self.logger.warning(f"Failed to read {text_file}: {e}")
+        
+        if samples:
+            self.logger.info(f"Loaded {len(samples)} local calibration samples")
+            return samples
+        else:
+            return self._generate_mock_calibration_data()
+    
+    def _generate_mock_calibration_data(self) -> List[Dict[str, Any]]:
+        """Generate mock calibration data as fallback."""
+        self.logger.info("Generating mock calibration data")
         mock_samples = []
-        for i in range(2000):  # Generate 2000 mock samples
+        for i in range(2000):
             sample = {
                 "text": f"This is sample calibration text number {i}. " * 20,
-                "source": "c4",
+                "source": "mock_c4",
                 "length": random.randint(100, 1000)
             }
             mock_samples.append(sample)
-        
         return mock_samples
     
     def _process_calibration_sample(self, sample: Dict[str, Any], 
@@ -196,7 +254,43 @@ class DataCurationAgent(BaseAgent):
         }
     
     def _generate_mock_mmlu_data(self) -> List[Dict[str, Any]]:
-        """Generate mock MMLU data."""
+        """Load real MMLU data or generate mock data."""
+        try:
+            from datasets import load_dataset
+            
+            self.logger.info("Loading MMLU dataset from HuggingFace")
+            
+            # Load MMLU dataset
+            dataset = load_dataset("cais/mmlu", "all", split="test")
+            
+            samples = []
+            for i, sample in enumerate(dataset):
+                if i >= 1000:  # Limit to 1000 samples
+                    break
+                
+                # Convert to our format
+                choices = [f"{chr(65+j)}) {choice}" for j, choice in enumerate(sample["choices"])]
+                samples.append({
+                    "id": f"mmlu_{i}",
+                    "subject": sample["subject"],
+                    "question": sample["question"],
+                    "choices": choices,
+                    "answer": chr(65 + sample["answer"]),  # Convert 0,1,2,3 to A,B,C,D
+                    "difficulty": "unknown"  # MMLU doesn't have difficulty ratings
+                })
+            
+            self.logger.info(f"Loaded {len(samples)} real MMLU samples")
+            return samples
+            
+        except ImportError:
+            self.logger.warning("HuggingFace datasets not available for MMLU")
+            return self._generate_mock_mmlu_fallback()
+        except Exception as e:
+            self.logger.error(f"Failed to load MMLU dataset: {e}")
+            return self._generate_mock_mmlu_fallback()
+    
+    def _generate_mock_mmlu_fallback(self) -> List[Dict[str, Any]]:
+        """Generate mock MMLU data as fallback."""
         subjects = ["mathematics", "physics", "chemistry", "biology", "history", 
                    "literature", "philosophy", "economics", "computer_science", "law"]
         
@@ -216,7 +310,47 @@ class DataCurationAgent(BaseAgent):
         return samples
     
     def _generate_mock_gsm8k_data(self) -> List[Dict[str, Any]]:
-        """Generate mock GSM8K data."""
+        """Load real GSM8K data or generate mock data."""
+        try:
+            from datasets import load_dataset
+            
+            self.logger.info("Loading GSM8K dataset from HuggingFace")
+            
+            # Load GSM8K dataset
+            dataset = load_dataset("gsm8k", "main", split="test")
+            
+            samples = []
+            for i, sample in enumerate(dataset):
+                if i >= 500:  # Limit to 500 samples
+                    break
+                
+                # Extract answer from solution (last number typically)
+                solution = sample["answer"]
+                answer_match = re.search(r'####\s*(\d+)', solution)
+                answer = int(answer_match.group(1)) if answer_match else 0
+                
+                # Split solution into steps
+                solution_steps = [step.strip() for step in solution.split('\n') if step.strip()]
+                
+                samples.append({
+                    "id": f"gsm8k_{i}",
+                    "question": sample["question"],
+                    "answer": answer,
+                    "solution_steps": solution_steps[:4]  # Limit to 4 main steps
+                })
+            
+            self.logger.info(f"Loaded {len(samples)} real GSM8K samples")
+            return samples
+            
+        except ImportError:
+            self.logger.warning("HuggingFace datasets not available for GSM8K")
+            return self._generate_mock_gsm8k_fallback()
+        except Exception as e:
+            self.logger.error(f"Failed to load GSM8K dataset: {e}")
+            return self._generate_mock_gsm8k_fallback()
+    
+    def _generate_mock_gsm8k_fallback(self) -> List[Dict[str, Any]]:
+        """Generate mock GSM8K data as fallback."""
         samples = []
         for i in range(500):
             sample = {

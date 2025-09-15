@@ -1,8 +1,10 @@
 # Model configuration for Gemma 3 270M
   model:
-    base_model: "google/gemma-3-270m"  # 或 "google/gemma-3-270m-it" 如果要用指令版本
-    sequence_length: 2048              # Gemma 3 270M 支援 2K context
-    max_model_len: 2048
+    base_model: "openai-community/gpt2"     # GPT-2 開放模型，無需認證
+    # base_model: "microsoft/DialoGPT-small"  # 也可以用這個
+    # base_model: "google/gemma-2b"  # 需要認證
+    sequence_length: 1024              # GPT-2 支援 1K context
+    max_model_len: 1024
 
   # Hardware configuration (270M 模型需求較低)
   hardware:
@@ -23,15 +25,15 @@
     data_curation:
       enabled: true
     recipe_planner:
-      enabled: false                  # 跳過複雜的 recipe planning
+      enabled: true                   # 啟用 recipe planning
     quantization:
-      enabled: false                  # 270M 已經很小，先不量化
+      enabled: true                   # 啟用量化以測試功能
     kv_longcontext:
-      enabled: false
+      enabled: true                   # 啟用 KV 優化
     pruning_sparsity:
-      enabled: false
+      enabled: true                   # 啟用剪枝
     distillation:
-      enabled: false
+      enabled: true                   # 啟用蒸餾
     rag:
       enabled: false
     perf_carbon:

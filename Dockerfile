@@ -10,6 +10,9 @@ ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=${CUDA_HOME}/bin:${PATH}
 ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:${LD_LIBRARY_PATH}
+ENV TRANSFORMERS_CACHE=/app/models
+ENV HF_HOME=/app/models
+ENV TORCH_CUDA_ARCH_LIST="7.0;7.5;8.0;8.6;8.9;9.0"
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -37,30 +40,51 @@ COPY requirements.txt .
 
 # Install essential packages first
 RUN pip install --no-cache-dir \
-    torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    torch==2.1.2+cu121 torchvision==0.16.2+cu121 torchaudio==2.1.2+cu121 \
+    --index-url https://download.pytorch.org/whl/cu121
 
-# Install core ML libraries
+# Install core ML libraries with real implementation support
 RUN pip install --no-cache-dir \
     transformers>=4.36.0 \
-    accelerate \
-    datasets \
-    bitsandbytes
+    accelerate>=0.25.0 \
+    datasets>=2.14.0 \
+    bitsandbytes>=0.41.0 \
+    peft>=0.7.0 \
+    safetensors \
+    sentencepiece \
+    protobuf
 
 # Install monitoring and visualization libraries
 RUN pip install --no-cache-dir \
     plotly \
-    pynvml \
+    matplotlib \
+    seaborn \
+    nvidia-ml-py \
     GPUtil \
     psutil \
     scikit-learn \
     pandas \
     numpy \
+    scipy \
+    optuna \
+    deap \
     pyyaml \
     tqdm \
-    click
+    click \
+    loguru \
+    rich
 
-# Install vLLM (optional, comment out if causing issues)
-# RUN pip install --no-cache-dir vllm
+# Install quantization libraries for real model compression
+RUN pip install --no-cache-dir \
+    auto-gptq>=0.7.0 \
+    autoawq>=0.1.8
+
+# Install vLLM for model serving (optional but recommended)
+RUN pip install --no-cache-dir vllm>=0.3.0 || echo "vLLM installation failed, continuing..."
+
+# Install FlashAttention for optimized attention
+RUN pip install --no-cache-dir ninja packaging && \
+    pip install --no-cache-dir flash-attn --no-build-isolation || echo "FlashAttention optional, continuing..."
 
 # Install development tools
 RUN pip install --no-cache-dir \
@@ -72,11 +96,12 @@ RUN pip install --no-cache-dir \
 COPY llm_compressor/ ./llm_compressor/
 COPY llm_compressor/configs/ ./configs/
 COPY llm_compressor/scripts/ ./scripts/
+COPY start_real_compression.sh .
 COPY Makefile .
 COPY README.md .
 
 # Create necessary directories
-RUN mkdir -p reports artifacts logs
+RUN mkdir -p reports artifacts logs models
 
 # Set permissions for scripts
 RUN chmod +x scripts/*.py scripts/*.sh
