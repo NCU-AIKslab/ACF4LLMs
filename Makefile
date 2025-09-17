@@ -1,38 +1,54 @@
-# Makefile for LLM Compressor
-# Multi-agent system for LLM compression and optimization
+# Makefile for LLM Compressor 2.0
+# LLM-driven intelligent multi-agent system for LLM compression and optimization
 
-.PHONY: help install build run clean test lint format docker setup-dev
+.PHONY: help install build run clean test lint format docker setup-dev llm-test
 
 # Variables
 PYTHON := python3
 PIP := pip
 DOCKER_IMAGE := llm-compressor
 DOCKER_TAG := latest
-CONFIG_FILE := configs/default.yaml
+CONFIG_FILE := llm_compressor/configs/default.yaml
 OUTPUT_DIR := reports
 
 # Default target
 help:
-	@echo "LLM Compressor - Multi-agent optimization system"
+	@echo "LLM Compressor 2.0 - LLM-driven intelligent optimization system"
 	@echo ""
 	@echo "Available targets:"
-	@echo "  install      Install dependencies"
-	@echo "  build        Build Docker image"
-	@echo "  run          Run optimization with default config"
-	@echo "  run-baseline Run baseline recipes only"
-	@echo "  run-docker   Run in Docker container"
-	@echo "  clean        Clean up generated files"
-	@echo "  test         Run test suite"
-	@echo "  lint         Run code linting"
-	@echo "  format       Format code"
-	@echo "  setup-dev    Setup development environment"
-	@echo "  export       Export and analyze results"
-	@echo "  quickstart   Quick setup and run"
+	@echo "  install         Install dependencies (including LangChain/LangGraph)"
+	@echo "  build           Build Docker image with LLM support"
+	@echo "  run             Run conservative optimization (default)"
+	@echo "  run-baseline    Run baseline performance measurement"
+	@echo "  run-conservative Run conservative LLM-driven optimization"
+	@echo "  run-aggressive  Run aggressive LLM-driven optimization"
+	@echo "  run-llm-planned Run LLM-planned optimization portfolio"
+	@echo "  test            Run test suite"
+	@echo "  llm-test        Test LLM agent system"
+	@echo "  docker-*        Docker variants of all run commands"
+	@echo "  clean           Clean up generated files"
+	@echo "  lint            Run code linting"
+	@echo "  format          Format code"
+	@echo "  setup-dev       Setup development environment"
+	@echo "  export          Export and analyze results"
+	@echo ""
+	@echo "LLM-driven Docker commands:"
+	@echo "  docker-build       Build LLM-enabled Docker image"
+	@echo "  docker-baseline    Run baseline in Docker"
+	@echo "  docker-conservative Run conservative optimization in Docker"
+	@echo "  docker-aggressive  Run aggressive optimization in Docker"
+	@echo "  docker-shell       Interactive Docker shell"
+	@echo "  docker-test        Run LLM system tests in Docker"
 	@echo ""
 	@echo "Configuration:"
 	@echo "  CONFIG_FILE=$(CONFIG_FILE)"
 	@echo "  OUTPUT_DIR=$(OUTPUT_DIR)"
 	@echo "  DOCKER_IMAGE=$(DOCKER_IMAGE):$(DOCKER_TAG)"
+	@echo ""
+	@echo "Environment Variables for LLM APIs:"
+	@echo "  OPENAI_API_KEY     OpenAI API key (for GPT models)"
+	@echo "  ANTHROPIC_API_KEY  Anthropic API key (for Claude models)"
+	@echo "  GOOGLE_API_KEY     Google API key (for Gemini models)"
 
 # Installation
 install:
@@ -52,36 +68,61 @@ build:
 	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 	@echo "Docker image built: $(DOCKER_IMAGE):$(DOCKER_TAG)"
 
-# Run targets
-run:
-	@echo "Running LLM compression optimization..."
-	$(PYTHON) scripts/run_search.py --config $(CONFIG_FILE) --output $(OUTPUT_DIR)
+# LLM-driven run targets
+run: run-conservative
+	@echo "Default run completed (conservative optimization)"
 
 run-baseline:
-	@echo "Running baseline recipes only..."
+	@echo "Running LLM-driven baseline measurement..."
 	$(PYTHON) scripts/run_search.py --config $(CONFIG_FILE) --recipes baseline --output $(OUTPUT_DIR)/baseline
 
-run-search:
-	@echo "Running search optimization only..."
-	$(PYTHON) scripts/run_search.py --config $(CONFIG_FILE) --recipes search --output $(OUTPUT_DIR)/search
+run-conservative:
+	@echo "Running LLM-driven conservative optimization..."
+	$(PYTHON) scripts/run_search.py --config $(CONFIG_FILE) --recipes conservative --output $(OUTPUT_DIR)/conservative
 
-run-docker:
-	@echo "Running in Docker container..."
-	docker run --gpus all -it --rm \
-		-v $(PWD)/configs:/app/configs \
-		-v $(PWD)/reports:/app/reports \
-		-v $(PWD)/evals:/app/evals \
-		$(DOCKER_IMAGE):$(DOCKER_TAG) \
-		python3 scripts/run_search.py --config $(CONFIG_FILE) --output reports/docker
+run-aggressive:
+	@echo "Running LLM-driven aggressive optimization..."
+	$(PYTHON) scripts/run_search.py --config $(CONFIG_FILE) --recipes aggressive --output $(OUTPUT_DIR)/aggressive
 
-run-interactive:
-	@echo "Running interactive Docker session..."
-	docker run --gpus all -it --rm \
-		-v $(PWD)/configs:/app/configs \
-		-v $(PWD)/reports:/app/reports \
-		-v $(PWD)/evals:/app/evals \
-		$(DOCKER_IMAGE):$(DOCKER_TAG) \
-		/bin/bash
+run-llm-planned:
+	@echo "Running LLM-planned optimization portfolio..."
+	$(PYTHON) scripts/run_search.py --config $(CONFIG_FILE) --recipes llm_planned --output $(OUTPUT_DIR)/llm_planned
+
+# Docker commands using run_docker.sh script
+docker-build:
+	@echo "Building LLM-enabled Docker image..."
+	./run_docker.sh build
+
+docker-baseline:
+	@echo "Running baseline measurement in Docker..."
+	./run_docker.sh baseline
+
+docker-conservative:
+	@echo "Running conservative optimization in Docker..."
+	./run_docker.sh conservative
+
+docker-aggressive:
+	@echo "Running aggressive optimization in Docker..."
+	./run_docker.sh aggressive
+
+docker-llm-planned:
+	@echo "Running LLM-planned optimization in Docker..."
+	./run_docker.sh llm-planned
+
+docker-shell:
+	@echo "Starting interactive Docker shell..."
+	./run_docker.sh shell
+
+docker-test:
+	@echo "Running LLM system tests in Docker..."
+	./run_docker.sh test
+
+# Legacy Docker command (kept for compatibility)
+run-docker: docker-conservative
+	@echo "Legacy docker run completed"
+
+run-interactive: docker-shell
+	@echo "Legacy interactive run completed"
 
 # Export and analysis
 export:
@@ -100,6 +141,10 @@ test:
 test-quick:
 	@echo "Running quick tests..."
 	$(PYTHON) -m pytest tests/ -v -x --tb=short
+
+llm-test:
+	@echo "Testing LLM agent system..."
+	$(PYTHON) test_llm_system.py
 
 # Code quality
 lint:

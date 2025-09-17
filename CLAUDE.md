@@ -4,26 +4,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-LLM Compressor is a multi-agent system for optimizing Large Language Models across multiple objectives: accuracy, latency, VRAM usage, energy consumption, and CO₂ emissions. The system uses Pareto frontier analysis to find optimal trade-offs between these objectives.
+LLM Compressor is an intelligent, LLM-driven multi-agent system for optimizing Large Language Models across multiple objectives: accuracy, latency, VRAM usage, energy consumption, and CO₂ emissions. The system uses LangChain and LangGraph to create intelligent agents that make optimization decisions, with Pareto frontier analysis to find optimal trade-offs between objectives.
 
 ## Core Architecture
 
 ### Multi-Agent System Structure
-- **Orchestrator** (`llm_compressor/core/orchestrator.py`): Main coordinator that manages agent execution and workflow
+- **Orchestrator** (`llm_compressor/core/orchestrator.py`): LangGraph-based coordinator for LLM-driven agents
 - **Registry** (`llm_compressor/core/registry.py`): Experiment tracking and artifact management
 - **Pareto Analyzer** (`llm_compressor/core/pareto.py`): Multi-objective optimization analysis
 - **Metrics Collector** (`llm_compressor/core/metrics.py`): Performance and resource monitoring
 
-### Agent Types
+### LLM-Driven Agent Framework
+- **Base LLM Agent** (`llm_compressor/agents/llm_base.py`): LangChain-powered base class for intelligent agents
+- **LangGraph Workflow**: StateGraph-based multi-agent coordination with conditional routing
+- **Decision Framework**: Structured LLM decision-making with confidence scoring and reasoning
+
+### LLM-Driven Agents
 Located in `llm_compressor/agents/`:
-- `quantization.py`: AWQ, GPTQ, BitsAndBytes quantization methods
-- `kv_longcontext.py`: FlashAttention, PagedAttention optimizations
-- `pruning_sparsity.py`: Structured/unstructured pruning and N:M sparsity
-- `distillation.py`: Knowledge distillation with LoRA/QLoRA
-- `perf_carbon.py`: Performance monitoring and carbon footprint measurement
-- `eval_safety.py`: Safety evaluation and red-teaming
-- `recipe_planner.py`: Pipeline planning and recipe generation
-- `search.py`: Bayesian and evolutionary optimization
+- `llm_quantization.py`: Intelligent quantization strategy selection using LLM reasoning
+- `llm_pruning.py`: Smart pruning decisions with sparsity pattern optimization
+- `llm_distillation.py`: Adaptive knowledge distillation with student model sizing
+- `llm_kv_optimization.py`: Context-aware attention optimization strategies
+- `llm_performance.py`: Intelligent performance monitoring and carbon footprint analysis
+- `llm_evaluation.py`: Comprehensive model evaluation with benchmark orchestration
+- `llm_recipe_planner.py`: LLM-driven optimization recipe generation and portfolio planning
 
 ### Model Runners
 - Abstract interface in `llm_compressor/core/runners.py` supports both vLLM and TensorRT-LLM backends
@@ -46,18 +50,26 @@ make setup-dev
 
 ### Running Optimization
 ```bash
-# Default optimization
-make run
-python scripts/run_search.py --config configs/default.yaml --output reports
-
-# Baseline recipes only
-make run-baseline
+# LLM-driven baseline measurement
 python scripts/run_search.py --config configs/default.yaml --recipes baseline --output reports/baseline
 
-# Search optimization
-make run-search
-python scripts/run_search.py --config configs/default.yaml --recipes search --output reports/search
+# LLM-driven conservative optimization
+python scripts/run_search.py --config configs/default.yaml --recipes conservative --output reports/conservative
 
+# LLM-driven aggressive optimization
+python scripts/run_search.py --config configs/default.yaml --recipes aggressive --output reports/aggressive
+
+# LLM-planned optimization portfolio
+python scripts/run_search.py --config configs/default.yaml --recipes llm_planned --output reports/llm_planned
+
+# Using make commands
+make run                    # Conservative optimization
+make run-baseline          # Baseline measurement
+make run-aggressive        # Aggressive optimization
+```
+
+#### Results Export
+```bash
 # Export results
 make export
 python scripts/export_report.py --db experiments.db --output analysis_report
@@ -160,9 +172,11 @@ class AgentResult:
 
 ## Evaluation Datasets
 Built-in support for:
-- **MMLU**: Multi-task Language Understanding
 - **GSM8K**: Mathematical reasoning
-- **MT-Bench**: Multi-turn conversations
+- **TruthfulQA**: Factual knowledge and truthfulness
+- **CommonsenseQA**: Commonsense reasoning
+- **HumanEval**: Code generation
+- **BIG-Bench Hard**: Complex reasoning tasks
 - **Safety**: Red-teaming and toxicity evaluation
 
 ## Monitoring and Debugging
@@ -218,6 +232,8 @@ find . -type d -name "__pycache__" -delete
 ```
 
 ## Key Dependencies
+
+### Core Dependencies
 - PyTorch ≥ 2.1.0 with CUDA support
 - Transformers ≥ 4.36.0
 - Quantization: auto-gptq, autoawq, bitsandbytes
@@ -226,4 +242,68 @@ find . -type d -name "__pycache__" -delete
 - Visualization: plotly, matplotlib, seaborn
 - Monitoring: pynvml, GPUtil, psutil
 - Development: pytest, black, isort, flake8, mypy
+
+### LLM Agent Framework Dependencies
+- **LangChain**: langchain ≥ 0.1.0, langchain-community, langchain-core
+- **LangGraph**: langgraph ≥ 0.0.20 for workflow orchestration
+- **LangSmith**: langsmith ≥ 0.0.80 for tracing and monitoring
+- **LLM Providers**:
+  - OpenAI: openai ≥ 1.12.0
+  - Anthropic: anthropic ≥ 0.8.0
+  - Google: google-generativeai ≥ 0.3.0
+
+## LLM-Driven Agent System
+
+### Environment Setup for LLM Agents
+```bash
+# Set API keys for LLM providers
+export OPENAI_API_KEY="your-openai-api-key"
+export ANTHROPIC_API_KEY="your-anthropic-api-key"
+export GOOGLE_API_KEY="your-google-api-key"
+
+# Optional: Set default LLM provider
+export DEFAULT_LLM_PROVIDER="openai"  # or "anthropic", "google"
+```
+
+### LLM Agent Configuration
+- **Primary Config**: `configs/default.yaml`
+- **Provider Selection**: Configure LLM provider per agent type
+- **Temperature Control**: Adjust reasoning vs consistency (0.1 for consistency, 0.7 for creativity)
+- **Token Limits**: Control response length and context usage
+
+### LLM Agent Features
+- **Intelligent Decision Making**: LLM-powered optimization strategy selection
+- **Adaptive Planning**: Dynamic adjustment based on intermediate results
+- **Risk Assessment**: Confidence scoring and uncertainty quantification
+- **Contextual Reasoning**: Hardware-aware and task-specific optimization
+- **Portfolio Generation**: Diverse optimization strategy exploration
+- **Multi-Objective Balancing**: Intelligent trade-off reasoning
+
+### LangGraph Workflow Architecture
+- **StateGraph**: Conditional node routing based on agent outputs
+- **Message Passing**: Structured communication between agents
+- **Error Handling**: Graceful failure recovery and retry mechanisms
+- **Workflow Coordination**: Intelligent agent sequencing and parallelization
+- **Result Aggregation**: Multi-agent output synthesis
+
+### Monitoring LLM Agent Performance
+```bash
+# Enable LLM request logging
+export LANGCHAIN_TRACING_V2=true
+export LANGCHAIN_ENDPOINT="https://api.smith.langchain.com"
+export LANGCHAIN_API_KEY="your-langsmith-api-key"
+
+# Debug LLM decisions
+python scripts/run_search.py --config configs/default.yaml --log-level DEBUG
+
+# Monitor token usage
+grep "token_usage" llm_optimization.log
+```
+
+### LLM Agent Troubleshooting
+- **API Rate Limits**: Agents gracefully handle rate limiting with exponential backoff
+- **Mock Mode**: System runs with simulated responses when API keys unavailable
+- **Fallback Mechanisms**: Traditional algorithmic agents as backup
+- **Validation**: Structured output parsing with error recovery
+- **Cost Control**: Token usage monitoring and budget management
 - to

@@ -49,6 +49,7 @@ tmp/
 docs/
 *.md
 !README.md
+!CLAUDE.md
 
 # Large model files
 *.bin

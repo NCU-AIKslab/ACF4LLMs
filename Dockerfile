@@ -98,6 +98,20 @@ RUN pip install --no-cache-dir vllm>=0.3.0 || echo "vLLM installation failed, co
 RUN pip install --no-cache-dir ninja packaging && \
     pip install --no-cache-dir flash-attn --no-build-isolation || echo "FlashAttention optional, continuing..."
 
+# Install LLM Agent Framework (LangChain, LangGraph)
+RUN pip install --no-cache-dir \
+    langchain>=0.1.0 \
+    langchain-community>=0.0.20 \
+    langchain-core>=0.1.20 \
+    langgraph>=0.0.20 \
+    langsmith>=0.0.80
+
+# Install LLM Provider APIs
+RUN pip install --no-cache-dir \
+    openai>=1.12.0 \
+    anthropic>=0.8.0 \
+    google-generativeai>=0.3.0
+
 # Install development tools
 RUN pip install --no-cache-dir \
     pytest \
@@ -106,17 +120,18 @@ RUN pip install --no-cache-dir \
 
 # Copy the project files
 COPY llm_compressor/ ./llm_compressor/
-COPY llm_compressor/configs/ ./configs/
-COPY llm_compressor/scripts/ ./scripts/
+COPY scripts/ ./scripts/
 COPY start_real_compression.sh .
+COPY test_llm_system.py .
 COPY Makefile .
 COPY README.md .
+COPY CLAUDE.md .
 
 # Create necessary directories
 RUN mkdir -p reports artifacts logs models
 
 # Set permissions for scripts
-RUN chmod +x scripts/*.py scripts/*.sh
+RUN chmod +x scripts/*.py
 
 # Create a non-root user (use different UID to avoid conflict)
 RUN useradd -m -u 1001 llmuser && \
@@ -136,27 +151,42 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
 CMD ["python3", "scripts/run_search.py", "--help"]
 
 # Build arguments for customization
-ARG MODEL_NAME="meta-llama/Meta-Llama-3-8B-Instruct"
-ARG GPU_TYPE="A100"
+ARG MODEL_NAME="google/gemma-3-4b-it"
+ARG GPU_TYPE="RTX_4090"
 ARG SEQUENCE_LENGTH="4096"
+ARG LLM_PROVIDER="openai"
 
 # Environment variables that can be overridden
 ENV MODEL_NAME=${MODEL_NAME}
 ENV GPU_TYPE=${GPU_TYPE}
 ENV SEQUENCE_LENGTH=${SEQUENCE_LENGTH}
+ENV DEFAULT_LLM_PROVIDER=${LLM_PROVIDER}
+
+# LLM API key placeholders (to be set at runtime)
+ENV OPENAI_API_KEY=""
+ENV ANTHROPIC_API_KEY=""
+ENV GOOGLE_API_KEY=""
+
+# LangChain tracing (optional)
+ENV LANGCHAIN_TRACING_V2="false"
+ENV LANGCHAIN_ENDPOINT=""
+ENV LANGCHAIN_API_KEY=""
 
 # Labels for metadata
 LABEL maintainer="LLM Compressor Team"
-LABEL version="0.1.0"
-LABEL description="Multi-agent LLM compression and optimization system"
+LABEL version="2.0.0"
+LABEL description="LLM-driven intelligent multi-agent system for LLM compression and optimization"
 LABEL gpu.required="true"
 LABEL gpu.vendor="nvidia"
-LABEL gpu.memory.min="40GB"
+LABEL gpu.memory.min="22GB"
+LABEL llm.framework="langchain"
+LABEL llm.orchestration="langgraph"
+LABEL llm.providers="openai,anthropic,google"
 
 # Documentation
-LABEL org.opencontainers.image.title="LLM Compressor"
-LABEL org.opencontainers.image.description="Multi-agent system for LLM compression with Pareto optimization"
-LABEL org.opencontainers.image.version="0.1.0"
+LABEL org.opencontainers.image.title="LLM Compressor 2.0"
+LABEL org.opencontainers.image.description="LLM-driven intelligent multi-agent system using LangChain and LangGraph"
+LABEL org.opencontainers.image.version="2.0.0"
 LABEL org.opencontainers.image.vendor="LLM Compressor Team"
 LABEL org.opencontainers.image.source="https://github.com/example/llm-compressor"
 LABEL org.opencontainers.image.documentation="https://github.com/example/llm-compressor/blob/main/README.md"

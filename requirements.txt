@@ -72,6 +72,18 @@ notebook>=7.0.0
 h5py>=3.9.0
 pyarrow>=14.0.0
 
+# LLM Agent Framework
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-core>=0.1.20
+langgraph>=0.0.20
+langsmith>=0.0.80
+
+# LLM Providers
+openai>=1.12.0
+anthropic>=0.8.0
+google-generativeai>=0.3.0
+
 # Additional Utilities
 tqdm>=4.66.0
 click>=8.1.0

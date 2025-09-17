@@ -1,23 +1,35 @@
-# LLM Compressor
+# LLM Compressor 2.0
 
-**Multi-Agent System for LLM Compression and Optimization with Pareto Frontier Analysis**
+**LLM-Driven Intelligent Multi-Agent System for LLM Compression and Optimization**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
 [![CUDA](https://img.shields.io/badge/CUDA-11.8+-green.svg)](https://developer.nvidia.com/cuda-downloads)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](Dockerfile)
+[![LangChain](https://img.shields.io/badge/LangChain-🦜🔗-yellow.svg)](https://langchain.dev/)
 
 ## Overview
 
-LLM Compressor is a comprehensive multi-agent optimization system designed to compress and optimize Large Language Models (LLMs) across multiple objectives: **accuracy**, **latency**, **VRAM usage**, **energy consumption**, and **CO₂ emissions**. The system uses Pareto frontier analysis to find optimal trade-offs and provides automated pipeline execution with reproducible results.
+LLM Compressor 2.0 is a revolutionary **LLM-driven intelligent multi-agent system** that uses Large Language Models to make intelligent optimization decisions. Each agent is powered by LLMs (OpenAI, Anthropic, Google) using **LangChain** and **LangGraph** for sophisticated reasoning, planning, and decision-making in model compression and optimization.
+
+The system optimizes across multiple objectives: **accuracy**, **latency**, **VRAM usage**, **energy consumption**, and **CO₂ emissions**, using Pareto frontier analysis to find optimal trade-offs.
+
+### 🆕 LLM-Driven Intelligence
+
+- 🧠 **Intelligent Decision Making**: Each agent uses LLMs to reason about optimization strategies
+- 🔗 **LangChain Integration**: Structured prompts, output parsing, and multi-provider LLM support
+- 📊 **LangGraph Orchestration**: State-based workflow management with conditional routing
+- 🎯 **Confidence Scoring**: Agents provide confidence levels and reasoning for their decisions
+- 📝 **Dynamic Strategy Planning**: LLMs generate and adapt optimization recipes in real-time
 
 ### Key Features
 
-- 🤖 **10+ Specialized Agents**: Quantization, Pruning, Distillation, KV Optimization, Performance Monitoring, Safety Evaluation
-- 📊 **Multi-Objective Optimization**: Accuracy, Latency, VRAM, Energy, CO₂e with Pareto frontier analysis
-- 🔧 **Multiple Backends**: vLLM, TensorRT-LLM support with abstracted interfaces
+- 🤖 **7 LLM-Powered Agents**: Quantization, Pruning, Distillation, KV Optimization, Performance Monitoring, Evaluation, Recipe Planning
+- 🧠 **Multi-LLM Provider Support**: OpenAI GPT-4, Anthropic Claude, Google Gemini
+- 🔗 **LangChain Framework**: Structured agent interactions with memory and reasoning
+- 📊 **LangGraph Workflows**: Conditional agent routing and state management
 - 📈 **Interactive Visualizations**: Plotly-based charts, 3D Pareto frontiers, parallel coordinates
-- 🐳 **Containerized**: Docker support with GPU acceleration
+- 🐳 **Docker Ready**: Complete containerization with GPU acceleration
 - ⚡ **Production Ready**: Automated pipelines, experiment tracking, comprehensive reporting
 
 ### Supported Optimization Techniques
@@ -50,14 +62,41 @@ cd llm-compressor
 make quickstart
 ```
 
-### Docker Installation
+### 🐳 Docker Installation (推薦)
 
 ```bash
-# Build Docker image
-make build
+# 快速開始 - 運行完整演示
+./docker_example.sh
 
-# Run optimization in container
-make run-docker
+# 手動步驟
+# 1. 構建 LLM-enabled Docker 映像
+make docker-build
+
+# 2. 設置 API 密鑰 (可選)
+export OPENAI_API_KEY="your-openai-key"
+export ANTHROPIC_API_KEY="your-anthropic-key"
+export GOOGLE_API_KEY="your-google-key"
+
+# 3. 運行優化實驗
+make docker-conservative    # 保守優化
+make docker-aggressive      # 激進優化
+make docker-baseline        # 基線測量
+
+# 4. 檢查結果
+ls reports/
+```
+
+**Docker 命令參考**:
+```bash
+# 所有可用的 Docker 操作
+./run_docker.sh build         # 構建映像
+./run_docker.sh baseline      # 基線測量
+./run_docker.sh conservative  # 保守優化
+./run_docker.sh aggressive    # 激進優化
+./run_docker.sh llm-planned   # LLM 規劃的組合
+./run_docker.sh shell         # 互動式 shell
+./run_docker.sh test          # 系統測試
+./run_docker.sh help          # 幫助信息
 ```
 
 ### Manual Installation
@@ -78,32 +117,64 @@ make run-baseline
 ### Basic Usage
 
 ```bash
-# Run with default configuration
-python scripts/run_search.py --config configs/default.yaml
+# LLM-driven optimization with default configuration
+python scripts/run_search.py --config llm_compressor/configs/default.yaml
 
-# Run only baseline recipes
-python scripts/run_search.py --config configs/default.yaml --recipes baseline
-
-# Run search optimization
-python scripts/run_search.py --config configs/default.yaml --recipes search
+# Run specific optimization strategies
+python scripts/run_search.py --config llm_compressor/configs/default.yaml --recipes baseline
+python scripts/run_search.py --config llm_compressor/configs/default.yaml --recipes conservative
+python scripts/run_search.py --config llm_compressor/configs/default.yaml --recipes aggressive
+python scripts/run_search.py --config llm_compressor/configs/default.yaml --recipes llm_planned
 
 # Export and analyze results
 python scripts/export_report.py --db experiments.db --output analysis_report
 ```
+
+### 🧠 LLM Agent Configuration
+
+設置 LLM API 密鑰以啟用智能代理：
+
+```bash
+# OpenAI (推薦，支持 GPT-4)
+export OPENAI_API_KEY="sk-your-openai-api-key"
+
+# Anthropic (Claude 模型)
+export ANTHROPIC_API_KEY="sk-ant-your-anthropic-key"
+
+# Google (Gemini 模型)
+export GOOGLE_API_KEY="your-google-api-key"
+
+# 可選：LangSmith 追蹤
+export LANGCHAIN_TRACING_V2="true"
+export LANGCHAIN_API_KEY="your-langsmith-key"
+```
+
+**無 API 密鑰模式**: 系統會在模擬模式下運行，使用預定義的決策邏輯。
 
 ### Configuration
 
 The system is configured via YAML files. Key parameters:
 
 ```yaml
-# configs/default.yaml
+# llm_compressor/configs/default.yaml
 model:
-  base_model: "meta-llama/Meta-Llama-3-8B-Instruct"
+  base_model: "google/gemma-3-4b-it"  # 使用 Gemma 3 4B 模型
   sequence_length: 4096
 
 hardware:
-  gpu: "NVIDIA A100 80GB"
-  vram_limit_gb: 80
+  gpu: "RTX_4090"          # 支持消費級 GPU
+  vram_limit_gb: 24        # 適配 RTX 4090
+
+# LLM Agent 配置
+llm:
+  provider: "openai"        # openai, anthropic, google
+  model: "gpt-4o-mini"     # 成本效益優化
+  temperature: 0.1         # 低溫度保證一致性
+  max_tokens: 1000
+
+# 評估數據集 (5個主要基準)
+evaluation:
+  datasets: ["gsm8k", "truthfulqa", "commonsenseqa", "humaneval", "bigbench"]
 
 constraints:
   max_accuracy_drop: 0.01  # 1% max accuracy drop
@@ -140,31 +211,55 @@ Top Pareto Candidates:
 
 ## Architecture
 
-### Multi-Agent System
+### 🧠 LLM-Driven Multi-Agent System
 
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│  Recipe Planner │───▶│   Orchestrator   │───▶│ Pareto Analysis │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-                              │
-                    ┌─────────┼─────────┐
-                    ▼         ▼         ▼
-            ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-            │Quantization │ │KV Optimizer │ │Perf Monitor │
-            └─────────────┘ └─────────────┘ └─────────────┘
-                    ▼         ▼         ▼
-            ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-            │   Pruning   │ │Distillation │ │   Safety    │
-            └─────────────┘ └─────────────┘ └─────────────┘
+    🧠 LLM Provider (OpenAI/Anthropic/Google)
+                     │
+         ┌───────────┼───────────┐
+         ▼           ▼           ▼
+    LangChain   LangGraph   LangSmith
+    Framework   Workflow    Tracing
+         │           │           │
+         └─────────▼─────────────┘
+              Orchestrator
+         ┌─────────┼─────────┐
+         ▼         ▼         ▼
+   🤖 Recipe    🔍 智能     📊 Pareto
+   Planner     決策引擎    Analysis
+         │         │         │
+    ┌────┼─────────┼─────────┼────┐
+    ▼    ▼         ▼         ▼    ▼
+┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+│量化 Agent│ │剪枝 Agent│ │蒸餾 Agent│ │KV Agent │
+│🧠+⚡AWQ  │ │🧠+✂️結構化│ │🧠+📚LoRA │ │🧠+💾Flash│
+└─────────┘ └─────────┘ └─────────┘ └─────────┘
+    ▼         ▼         ▼         ▼
+┌─────────┐ ┌─────────┐ ┌─────────┐
+│性能 Agent│ │評估 Agent│ │安全 Agent│
+│🧠+📈監控 │ │🧠+🎯基準 │ │🧠+🛡️檢測│
+└─────────┘ └─────────┘ └─────────┘
 ```
 
-### Core Components
+### 🔧 Core Components
 
-- **Orchestrator**: Manages agent execution and workflow
-- **Registry**: Experiment tracking and artifact management  
-- **Pareto Analyzer**: Multi-objective optimization analysis
-- **Metrics Collector**: Performance and resource monitoring
-- **Model Runners**: vLLM/TensorRT-LLM abstraction layer
+- **🧠 LLM-Powered Orchestrator**: LangGraph-based workflow management with intelligent routing
+- **🤖 Intelligent Agents**: Each agent uses LLMs for decision-making and strategy planning
+- **📊 StateGraph Workflow**: Conditional routing based on agent results and confidence scores
+- **📝 Structured Decision Framework**: Confidence scoring, reasoning, and impact estimation
+- **🔄 Dynamic Strategy Adaptation**: Real-time recipe generation and optimization planning
+- **📈 Pareto Analyzer**: Multi-objective optimization with LLM-guided exploration
+- **🎯 Model Runners**: vLLM/TensorRT-LLM abstraction layer with intelligent backend selection
+
+### 🧠 LLM Agent Decision Process
+
+Each agent follows a structured decision-making process:
+
+1. **🔍 Context Analysis**: LLM analyzes model, hardware, and optimization constraints
+2. **💭 Strategy Reasoning**: LLM generates and evaluates multiple optimization approaches
+3. **📊 Confidence Scoring**: Each decision includes confidence level (0.0-1.0)
+4. **⚡ Action Execution**: Selected strategy is implemented with monitoring
+5. **📈 Result Analysis**: LLM evaluates outcomes and suggests improvements
 
 ## Baseline Recipes
 
