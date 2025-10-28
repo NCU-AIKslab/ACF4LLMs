@@ -1,98 +1,58 @@
-# LLM Compressor Requirements
-# Multi-agent system for LLM compression and optimization
+# Core LangChain and LangGraph dependencies (NO GCP)
+langchain>=0.1.0
+langchain-openai>=0.0.5
+langchain-anthropic>=0.1.0
+langgraph>=0.0.20
+langchain-community>=0.0.10
 
-# Core ML Libraries
+# Machine Learning and Model Compression
 torch>=2.1.0
-torchvision>=0.16.0
-torchaudio>=2.1.0
 transformers>=4.36.0
 accelerate>=0.25.0
-datasets>=2.14.0
-
-# Quantization Libraries
-auto-gptq[triton]>=0.7.0
-autoawq>=0.1.8
 bitsandbytes>=0.41.0
+peft>=0.7.0
 
-# Attention Optimization
-flash-attn>=2.4.0
-
-# Model Serving (optional - choose one)
-vllm>=0.3.0
-# tensorrt-llm  # Uncomment if using TensorRT-LLM
+# Optimization and Scientific Computing
+numpy>=1.24.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
 
 # Data Processing
-numpy>=1.24.0
 pandas>=2.0.0
-scikit-learn>=1.3.0
-pyyaml>=6.0.0
 
-# Visualization and Monitoring
-plotly>=5.17.0
+# Visualization
 matplotlib>=3.7.0
 seaborn>=0.12.0
+plotly>=5.18.0
+kaleido>=0.2.1
 
-# System Monitoring
+# Web UI
+streamlit>=1.30.0
+
+# GPU Monitoring (optional)
 pynvml>=11.5.0
-GPUtil>=1.4.0
-psutil>=5.9.0
 
-# Optimization and Search
-scipy>=1.11.0
-optuna>=3.4.0  # For Bayesian optimization
-deap>=1.4.0    # For evolutionary algorithms
+# Monitoring and Logging
+prometheus-client>=0.19.0
+python-json-logger>=2.0.7
 
-# Distributed Computing (optional)
-ray[default]>=2.8.0
+# API and Async Support
+aiohttp>=3.9.0
+pydantic>=2.5.0
 
-# Web and API
-requests>=2.31.0
-fastapi>=0.104.0
-uvicorn>=0.24.0
+# Environment and Configuration
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
 
-# Logging and Configuration
-loguru>=0.7.0
-hydra-core>=1.3.0
-omegaconf>=2.3.0
-
-# Development Tools
+# Testing and Development
 pytest>=7.4.0
+pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
-black>=23.10.0
-isort>=5.12.0
-flake8>=6.1.0
-mypy>=1.7.0
+black>=23.0.0
+ruff>=0.1.0
+mypy>=1.5.0
 
-# Jupyter and Interactive Development
-jupyter>=1.0.0
-ipywidgets>=8.1.0
-notebook>=7.0.0
-
-# File I/O and Serialization
-h5py>=3.9.0
-pyarrow>=14.0.0
-
-# LLM Agent Framework
-langchain>=0.1.0
-langchain-community>=0.0.20
-langchain-core>=0.1.20
-langgraph>=0.0.20
-langsmith>=0.0.80
-
-# LLM Providers
-openai>=1.12.0
-anthropic>=0.8.0
-google-generativeai>=0.3.0
-
-# Additional Utilities
-tqdm>=4.66.0
-click>=8.1.0
-rich>=13.7.0
-
-# Database
-# sqlite3 is built-in with Python, no need to install
-
-# Documentation
-sphinx>=7.2.0
-sphinx-rtd-theme>=1.3.0
-matplotlib
+# Optional: For actual model compression
+# auto-gptq>=0.5.0
+# awq>=0.1.0
+# codecarbon>=2.3.0

@@ -1,539 +1,403 @@
-# LLM Compressor 2.0
+# Agentic Carbon-Efficient LLM Compression Framework
 
-**LLM-Driven Intelligent Multi-Agent System for LLM Compression and Optimization**
-
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/release/python-3100/)
-[![CUDA](https://img.shields.io/badge/CUDA-11.8+-green.svg)](https://developer.nvidia.com/cuda-downloads)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](Dockerfile)
-[![LangChain](https://img.shields.io/badge/LangChain-🦜🔗-yellow.svg)](https://langchain.dev/)
+> **🎉 Version 2.0 - Refactored!**
+> Refactored from single-file scripts into a **standard Python package** with modular components.
+> **All GCP/A2A Protocol dependencies removed** - now uses **LangGraph-native** agent orchestration.
 
 ## Overview
 
-LLM Compressor 2.0 is a revolutionary **LLM-driven intelligent multi-agent system** that uses Large Language Models to make intelligent optimization decisions. Each agent is powered by LLMs (OpenAI, Anthropic, Google) using **LangChain** and **LangGraph** for sophisticated reasoning, planning, and decision-making in model compression and optimization.
+This repository implements the **Agentic Carbon-Efficient Compression Framework** for Large Language Models (LLMs) based on the research paper by Liu et al. (2025). The framework uses a multi-agent system architecture with **LangGraph** to dynamically optimize model compression while balancing accuracy, efficiency, and carbon footprint.
 
-The system optimizes across multiple objectives: **accuracy**, **latency**, **VRAM usage**, **energy consumption**, and **CO₂ emissions**, using Pareto frontier analysis to find optimal trade-offs.
+### What's New in v2.0
 
-### 🆕 LLM-Driven Intelligence
+- ✅ **Standard Python package structure** (`src/agentic_compression/`)
+- ✅ **No GCP dependencies** - completely local, no cloud account needed
+- ✅ **LangGraph-native workflow** - replaces custom A2A Protocol
+- ✅ **Modular design** - separated concerns (tools, optimization, visualization)
+- ✅ **Proper package configuration** (`pyproject.toml`)
+- ✅ **Clean API** with examples
 
-- 🧠 **Intelligent Decision Making**: Each agent uses LLMs to reason about optimization strategies
-- 🔗 **LangChain Integration**: Structured prompts, output parsing, and multi-provider LLM support
-- 📊 **LangGraph Orchestration**: State-based workflow management with conditional routing
-- 🎯 **Confidence Scoring**: Agents provide confidence levels and reasoning for their decisions
-- 📝 **Dynamic Strategy Planning**: LLMs generate and adapt optimization recipes in real-time
+## Key Features
 
-### Key Features
-
-- 🤖 **7 LLM-Powered Agents**: Quantization, Pruning, Distillation, KV Optimization, Performance Monitoring, Evaluation, Recipe Planning
-- 🧠 **Multi-LLM Provider Support**: OpenAI GPT-4, Anthropic Claude, Google Gemini
-- 🔗 **LangChain Framework**: Structured agent interactions with memory and reasoning
-- 📊 **LangGraph Workflows**: Conditional agent routing and state management
-- 📈 **Interactive Visualizations**: Plotly-based charts, 3D Pareto frontiers, parallel coordinates
-- 🐳 **Docker Ready**: Complete containerization with GPU acceleration
-- ⚡ **Production Ready**: Automated pipelines, experiment tracking, comprehensive reporting
-
-### Supported Optimization Techniques
-
-| Technique | Methods | Precision | Hardware Acceleration |
-|-----------|---------|-----------|----------------------|
-| **Quantization** | AWQ, GPTQ, BitsAndBytes | FP16, FP8, INT8, INT4 | ✅ GPU Optimized |
-| **Attention Optimization** | FlashAttention, PagedAttention | - | ✅ Memory Efficient |
-| **Pruning** | Structured, Unstructured, N:M Sparsity | - | ✅ Hardware Friendly |
-| **Knowledge Distillation** | LoRA, QLoRA, Layer Alignment | - | ✅ Parameter Efficient |
-| **Long Context** | Sliding Window, KV Compression | - | ✅ Memory Optimized |
-
-## Quick Start
-
-### Prerequisites
-
-- **GPU**: NVIDIA GPU with 40GB+ VRAM (A100/H100 recommended)
-- **CUDA**: 11.8+ 
-- **Python**: 3.10+
-- **Docker**: 20.10+ (optional)
-
-### Installation
-
-```bash
-# Clone repository
-git clone https://github.com/your-org/llm-compressor.git
-cd llm-compressor
-
-# Quick setup and run
-make quickstart
-```
-
-### 🐳 Docker Installation (推薦)
-
-```bash
-# 快速開始 - 運行完整演示
-./docker_example.sh
-
-# 手動步驟
-# 1. 構建 LLM-enabled Docker 映像
-make docker-build
-
-# 2. 設置 API 密鑰 (可選)
-export OPENAI_API_KEY="your-openai-key"
-export ANTHROPIC_API_KEY="your-anthropic-key"
-export GOOGLE_API_KEY="your-google-key"
-
-# 3. 運行優化實驗
-make docker-conservative    # 保守優化
-make docker-aggressive      # 激進優化
-make docker-baseline        # 基線測量
-
-# 4. 檢查結果
-ls reports/
-```
-
-**Docker 命令參考**:
-```bash
-# 所有可用的 Docker 操作
-./run_docker.sh build         # 構建映像
-./run_docker.sh baseline      # 基線測量
-./run_docker.sh conservative  # 保守優化
-./run_docker.sh aggressive    # 激進優化
-./run_docker.sh llm-planned   # LLM 規劃的組合
-./run_docker.sh shell         # 互動式 shell
-./run_docker.sh test          # 系統測試
-./run_docker.sh help          # 幫助信息
-```
-
-### Manual Installation
-
-```bash
-# Install dependencies
-make install
-
-# Setup evaluation datasets
-make setup-data
-
-# Run baseline optimization
-make run-baseline
-```
-
-## Usage
-
-### Basic Usage
-
-```bash
-# LLM-driven optimization with default configuration
-python scripts/run_search.py --config llm_compressor/configs/default.yaml
-
-# Run specific optimization strategies
-python scripts/run_search.py --config llm_compressor/configs/default.yaml --recipes baseline
-python scripts/run_search.py --config llm_compressor/configs/default.yaml --recipes conservative
-python scripts/run_search.py --config llm_compressor/configs/default.yaml --recipes aggressive
-python scripts/run_search.py --config llm_compressor/configs/default.yaml --recipes llm_planned
-
-# Export and analyze results
-python scripts/export_report.py --db experiments.db --output analysis_report
-```
-
-### 🧠 LLM Agent Configuration
-
-設置 LLM API 密鑰以啟用智能代理：
-
-```bash
-# OpenAI (推薦，支持 GPT-4)
-export OPENAI_API_KEY="sk-your-openai-api-key"
-
-# Anthropic (Claude 模型)
-export ANTHROPIC_API_KEY="sk-ant-your-anthropic-key"
-
-# Google (Gemini 模型)
-export GOOGLE_API_KEY="your-google-api-key"
-
-# 可選：LangSmith 追蹤
-export LANGCHAIN_TRACING_V2="true"
-export LANGCHAIN_API_KEY="your-langsmith-key"
-```
-
-**無 API 密鑰模式**: 系統會在模擬模式下運行，使用預定義的決策邏輯。
-
-### Configuration
-
-The system is configured via YAML files. Key parameters:
-
-```yaml
-# llm_compressor/configs/default.yaml
-model:
-  base_model: "google/gemma-3-4b-it"  # 使用 Gemma 3 4B 模型
-  sequence_length: 4096
-
-hardware:
-  gpu: "RTX_4090"          # 支持消費級 GPU
-  vram_limit_gb: 24        # 適配 RTX 4090
-
-# LLM Agent 配置
-llm:
-  provider: "openai"        # openai, anthropic, google
-  model: "gpt-4o-mini"     # 成本效益優化
-  temperature: 0.1         # 低溫度保證一致性
-  max_tokens: 1000
-
-# 評估數據集 (5個主要基準)
-evaluation:
-  datasets: ["gsm8k", "truthfulqa", "commonsenseqa", "humaneval", "bigbench"]
-
-constraints:
-  max_accuracy_drop: 0.01  # 1% max accuracy drop
-  p95_latency_ms: 150      # P95 latency threshold
-  carbon_budget_kg: 1.0    # CO₂e budget
-
-objective_weights:
-  accuracy: 1.0      # Maximize
-  latency: -0.8      # Minimize
-  vram: -0.6         # Minimize
-  energy: -0.5       # Minimize
-  co2e: -0.3         # Minimize
-```
-
-### Example Results
-
-After optimization, you'll get:
-
-- **Pareto Frontier**: 5-8 optimal candidates
-- **Interactive Visualizations**: 3D plots, parallel coordinates, radar charts
-- **Comprehensive Reports**: HTML, CSV, JSON, Markdown formats
-- **Reproducible Scripts**: One-click reproduction of any result
-
-```
-Top Pareto Candidates:
-┌──────┬─────────────────────┬───────┬──────────┬─────────────┬─────────────┐
-│ Rank │ Recipe ID           │ Score │ Accuracy │ Latency(ms) │ VRAM(GB)    │
-├──────┼─────────────────────┼───────┼──────────┼─────────────┼─────────────┤
-│ 1    │ awq_4bit_flash      │ 0.923 │ 0.847    │ 67.3        │ 18.2        │
-│ 2    │ conservative_8bit   │ 0.892 │ 0.853    │ 89.1        │ 22.4        │
-│ 3    │ aggressive_combo    │ 0.857 │ 0.831    │ 52.8        │ 12.7        │
-└──────┴─────────────────────┴───────┴──────────┴─────────────┴─────────────┘
-```
+- 🤖 **Multi-Agent Architecture**: Specialized agents for quantization, pruning, KV context optimization, and distillation
+- 🔄 **Dynamic Adaptation**: Real-time adjustment of compression strategies based on performance feedback
+- 📊 **Multi-Objective Optimization**: Pareto-optimal trade-off identification across multiple metrics
+- 🌱 **Carbon-Aware**: Integrated carbon monitoring and budget constraints
+- 🔗 **Google A2A Protocol**: Secure agent-to-agent communication
+- 📈 **Comprehensive Evaluation**: Benchmarking across GSM8K, TruthfulQA, CommonsenseQA, HumanEval, and BIG-Bench Hard
 
 ## Architecture
 
-### 🧠 LLM-Driven Multi-Agent System
-
 ```
-    🧠 LLM Provider (OpenAI/Anthropic/Google)
-                     │
-         ┌───────────┼───────────┐
-         ▼           ▼           ▼
-    LangChain   LangGraph   LangSmith
-    Framework   Workflow    Tracing
-         │           │           │
-         └─────────▼─────────────┘
-              Orchestrator
-         ┌─────────┼─────────┐
-         ▼         ▼         ▼
-   🤖 Recipe    🔍 智能     📊 Pareto
-   Planner     決策引擎    Analysis
-         │         │         │
-    ┌────┼─────────┼─────────┼────┐
-    ▼    ▼         ▼         ▼    ▼
-┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
-│量化 Agent│ │剪枝 Agent│ │蒸餾 Agent│ │KV Agent │
-│🧠+⚡AWQ  │ │🧠+✂️結構化│ │🧠+📚LoRA │ │🧠+💾Flash│
-└─────────┘ └─────────┘ └─────────┘ └─────────┘
-    ▼         ▼         ▼         ▼
-┌─────────┐ ┌─────────┐ ┌─────────┐
-│性能 Agent│ │評估 Agent│ │安全 Agent│
-│🧠+📈監控 │ │🧠+🎯基準 │ │🧠+🛡️檢測│
-└─────────┘ └─────────┘ └─────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    LangGraph Orchestrator                     │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │            Coordinator Agent (LangChain)              │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                            │                                  │
+│     ┌──────────────────────┴────────────────────────┐       │
+│     │                                                │       │
+│  ┌──▼─────────┐ ┌────────────┐ ┌──────────┐ ┌──────▼────┐  │
+│  │Quantization│ │  Pruning   │ │KV Context│ │Distillation│  │
+│  │   Agent    │ │   Agent    │ │  Agent   │ │   Agent    │  │
+│  └────────────┘ └────────────┘ └──────────┘ └────────────┘  │
+│                                                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │     Multi-Objective Evaluation Engine (Python)       │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### 🔧 Core Components
+## Installation
 
-- **🧠 LLM-Powered Orchestrator**: LangGraph-based workflow management with intelligent routing
-- **🤖 Intelligent Agents**: Each agent uses LLMs for decision-making and strategy planning
-- **📊 StateGraph Workflow**: Conditional routing based on agent results and confidence scores
-- **📝 Structured Decision Framework**: Confidence scoring, reasoning, and impact estimation
-- **🔄 Dynamic Strategy Adaptation**: Real-time recipe generation and optimization planning
-- **📈 Pareto Analyzer**: Multi-objective optimization with LLM-guided exploration
-- **🎯 Model Runners**: vLLM/TensorRT-LLM abstraction layer with intelligent backend selection
+### Prerequisites
 
-### 🧠 LLM Agent Decision Process
+- Python 3.10+
+- CUDA-capable GPU (optional, for actual model compression)
+- **No GCP account required!** ✨
 
-Each agent follows a structured decision-making process:
+### Setup
 
-1. **🔍 Context Analysis**: LLM analyzes model, hardware, and optimization constraints
-2. **💭 Strategy Reasoning**: LLM generates and evaluates multiple optimization approaches
-3. **📊 Confidence Scoring**: Each decision includes confidence level (0.0-1.0)
-4. **⚡ Action Execution**: Selected strategy is implemented with monitoring
-5. **📈 Result Analysis**: LLM evaluates outcomes and suggests improvements
-
-## Baseline Recipes
-
-The system includes 8 pre-configured baseline recipes:
-
-### 1. Quantization Only
-```yaml
-quantization_only:
-  pipeline: ["quantization", "perf_carbon", "eval_safety"]
-  quantization:
-    method: "awq"
-    bits: 4
-    group_size: 128
-  expected_results:
-    compression_ratio: 4.0
-    accuracy_drop: 0.005
-    latency_improvement: 1.8
+1. **Clone the repository**:
+```bash
+git clone https://github.com/your-org/agentic-compression-framework.git
+cd agentic-compression-framework
 ```
 
-### 2. KV Optimization Only
-```yaml
-kv_optimization_only:
-  pipeline: ["kv_longcontext", "perf_carbon", "eval_safety"]
-  kv_longcontext:
-    attention_type: "flash"
-    paged_attention: true
-    page_size: "2MB"
-  expected_results:
-    memory_efficiency: 1.5
-    latency_improvement: 1.2
+2. **Create virtual environment**:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-### 3. Combined Quantization + KV
-```yaml
-quantization_plus_kv:
-  pipeline: ["quantization", "kv_longcontext", "perf_carbon", "eval_safety"]
-  # Combines AWQ 4-bit with FlashAttention
-  expected_results:
-    compression_ratio: 4.0
-    memory_efficiency: 1.5
-    latency_improvement: 2.2
+3. **Install the package**:
+```bash
+# Install from source (development mode)
+pip install -e .
+
+# Or install dependencies only
+pip install -r requirements.txt
 ```
 
-[See full recipe configurations](configs/recipes_baseline.yaml)
-
-## Advanced Usage
-
-### Custom Configurations
-
-Create custom optimization scenarios:
-
-```yaml
-# configs/my_experiment.yaml
-model:
-  base_model: "microsoft/DialoGPT-large"
-  sequence_length: 2048
-
-constraints:
-  max_accuracy_drop: 0.005  # Stricter accuracy requirement
-  p95_latency_ms: 100       # Aggressive latency target
-
-search:
-  method: "evolutionary"
-  iterations: 100
-  parallel_workers: 8
+4. **Optional environment variables**:
+```bash
+# Only needed if using OpenAI/Anthropic LLMs for agent reasoning
+OPENAI_API_KEY=your_openai_api_key
+ANTHROPIC_API_KEY=your_anthropic_key
 ```
 
-### Adding New Agents
+**Note**: No GCP credentials needed - framework runs completely locally!
 
-1. **Create Agent Class**:
-```python
-# llm_compressor/agents/my_agent.py
-from .base import BaseAgent, AgentResult
+## Usage
 
-class MyCustomAgent(BaseAgent):
-    def execute(self, recipe, context):
-        # Your optimization logic here
-        return AgentResult(success=True, metrics={}, artifacts={})
-```
+### Web UI (Streamlit) - **NEW! ✨**
 
-2. **Register in Orchestrator**:
-```python
-# Add to orchestrator._initialize_agents()
-"my_custom": MyCustomAgent
-```
-
-3. **Configure in YAML**:
-```yaml
-agents:
-  my_custom:
-    enabled: true
-    custom_param: value
-```
-
-### Multi-GPU Support
+Launch the interactive web interface:
 
 ```bash
-# Use multiple GPUs
-CUDA_VISIBLE_DEVICES=0,1,2,3 python scripts/run_search.py \
-  --config configs/multi_gpu.yaml
+streamlit run app.py
 ```
 
-### Extending to TensorRT-LLM
+The Streamlit UI provides **4 interactive pages**:
 
-The system includes abstract interfaces for easy backend switching:
+1. **🚀 Quick Optimization** - Run single optimization experiments with custom configurations
+2. **📊 Advanced Visualization** - Explore RQ1, RQ3, RQ4 analyses with interactive charts
+3. **🔬 Experiment Comparison** - Run and compare multiple configurations side-by-side
+4. **🎯 Interactive 3D Explorer** - Explore multi-dimensional Pareto frontiers
+
+**Features**:
+- Real-time progress tracking
+- Interactive Plotly visualizations (2D/3D Pareto frontiers, parallel coordinates, radar charts)
+- Side-by-side experiment comparison
+- Export results as JSON
+- No coding required!
+
+### Quick Start (Programmatic)
 
 ```python
-# Use TensorRT-LLM instead of vLLM
-from llm_compressor.core.runners import RunnerFactory
+import asyncio
+from agentic_compression.graph.workflow import run_compression_optimization
 
-runner = RunnerFactory.create_runner("tensorrt", config)
-runner.start_server(model_path, max_batch_size=8)
+async def main():
+    # Run optimization using LangGraph workflow
+    results = await run_compression_optimization(
+        objective="Compress for edge deployment with minimal carbon",
+        carbon_budget=5.0,  # kg CO2
+        max_iterations=10,
+        accuracy_threshold=0.93
+    )
+
+    print(f"Found {results['pareto_optimal_count']} Pareto-optimal solutions")
+    print(f"Best solution: {results['best_solution']}")
+
+asyncio.run(main())
 ```
 
-## Evaluation Datasets
+### Using Research Question Implementations
 
-Built-in evaluation on standard benchmarks:
+```python
+from agentic_compression.optimization.agent_driven import run_rq2_experiment
 
-- **MMLU**: Multi-task Language Understanding (10 subjects)
-- **GSM8K**: Mathematical reasoning (100 problems)  
-- **MT-Bench**: Multi-turn conversations (80 scenarios)
-- **Safety**: Red-teaming and toxicity evaluation
+# Run RQ2: Agent-Driven Optimization
+results = await run_rq2_experiment(
+    model="google/gemma-12b",
+    accuracy_threshold=0.93,
+    carbon_budget=5.0
+)
 
-Custom datasets can be added via the dataset loader framework.
+print(f"Carbon impact: {results['carbon_impact_analysis']}")
+print(f"Key findings: {results['key_findings']}")
+```
 
-## Monitoring and Visualization
-
-### Real-time Monitoring
+### Command Line Interface
 
 ```bash
-# Monitor system resources during optimization
-make monitor
+# Run simple example
+python examples/simple_optimization.py
+
+# Run all experiments
+python examples/run_all_experiments.py
 ```
 
-### Interactive Visualizations
+### Docker Deployment
 
-The system generates multiple visualization types:
+```bash
+# Build Docker image
+docker build -t agentic-compression:latest .
 
-- **2D Pareto Plots**: Accuracy vs Latency, Accuracy vs VRAM
-- **3D Pareto Frontier**: Multi-objective trade-off surface
-- **Parallel Coordinates**: High-dimensional objective space
-- **Radar Charts**: Top candidate comparison
-- **Resource Timeline**: GPU/CPU/Memory usage over time
-
-### Sample Pareto Visualization
-
+# Run container with GPU support
+docker run --gpus all \
+    -v $(pwd)/results:/app/results \
+    -e OPENAI_API_KEY=$OPENAI_API_KEY \
+    agentic-compression:latest
 ```
-       Accuracy vs Latency Trade-off
-    1.0 ┤                                ╭─╮
-        │                              ╭─╯ ╰─╮ Pareto
-    0.9 ┤                        ╭─╮ ╭─╯     ╰─╮ Frontier
-        │                      ╭─╯ ╰─╯         ╰─╮
-    0.8 ┤                ╭─╮ ╭─╯                 ╰─╮
-        │          ╭─╮ ╭─╯ ╰─╯                     ╰─╮
-    0.7 ┤    ╭─╮ ╭─╯ ╰─╯                             ╰─╮
-        │╭─╮ ╯ ╰─╯                                     ╰─╮
-    0.6 ┼╯ ╰─────────────────────────────────────────────╰
-        0    50   100   150   200   250   300   350   400
-                        Latency (ms)
+
+### Kubernetes Deployment
+
+```bash
+# Apply Kubernetes configuration
+kubectl apply -f k8s/deployment.yaml
+
+# Check deployment status
+kubectl get pods -l app=compression-framework
+
+# View logs
+kubectl logs -f deployment/agentic-compression-framework
+```
+
+## Configuration
+
+### Compression Strategies
+
+The framework supports multiple compression techniques:
+
+1. **Quantization**: INT4, INT8, INT16 precision reduction
+2. **Pruning**: Structured and unstructured sparsity (up to 70%)
+3. **KV Context**: Context window optimization (1k-32k tokens)
+4. **Distillation**: Layer reduction (6-24 layers)
+
+### Search Strategies
+
+- `bayesian`: Bayesian optimization with Gaussian processes
+- `evolutionary`: Genetic algorithm-based search
+- `grid`: Exhaustive grid search
+- `random`: Random sampling baseline
+
+### Evaluation Benchmarks
+
+- **GSM8K**: Mathematical reasoning
+- **TruthfulQA**: Truthfulness and factual consistency
+- **CommonsenseQA**: Commonsense reasoning
+- **HumanEval**: Code generation
+- **BIG-Bench Hard**: Multi-domain challenging tasks
+
+## Monitoring
+
+### Prometheus Metrics
+
+The framework exposes metrics on port 8000:
+
+- `compression_requests_total`: Total compression requests by strategy
+- `compression_duration_seconds`: Time spent in compression
+- `model_accuracy`: Current model accuracy per benchmark
+- `carbon_emissions_kg`: Real-time carbon emissions
+
+### Grafana Dashboard
+
+Import the provided dashboard (`monitoring/dashboard.json`) to visualize:
+- Pareto frontier evolution
+- Carbon budget utilization
+- Accuracy vs. efficiency trade-offs
+- Agent activity patterns
+
+## API Reference
+
+### Framework API
+
+```python
+class AgenticCompressionFramework:
+    def __init__(self, base_model: str, carbon_budget: float, accuracy_threshold: float)
+    async def optimize(self, objectives: Dict, search_strategy: str, num_iterations: int) -> Dict
+    def apply_compression(self, config: Dict) -> Model
+```
+
+### Agent APIs
+
+```python
+class QuantizationAgent:
+    async def quantize_model(self, model_path: str, config: CompressionConfig) -> Dict
+
+class PruningAgent:
+    async def prune_model(self, model_path: str, config: CompressionConfig) -> Dict
+
+class KVContextAgent:
+    async def optimize_context(self, model_path: str, config: CompressionConfig) -> Dict
+
+class DistillationAgent:
+    async def distill_model(self, model_path: str, config: CompressionConfig) -> Dict
 ```
 
 ## Testing
 
 ```bash
-# Run full test suite
-make test
+# Run unit tests
+pytest tests/unit/
 
-# Quick tests only  
-make test-quick
+# Run integration tests
+pytest tests/integration/
 
-# Code quality checks
-make check
-```
+# Run with coverage
+pytest --cov=agentic_compression tests/
 
-## Contributing
-
-1. **Fork the repository**
-2. **Create feature branch**: `git checkout -b feature/new-agent`
-3. **Make changes** and add tests
-4. **Run quality checks**: `make check`
-5. **Submit pull request**
-
-### Development Setup
-
-```bash
-# Setup development environment
-make setup-dev
-
-# Run with debug logging
-make debug
-
-# Format code
-make format
+# Run specific test
+pytest tests/unit/test_quantization_agent.py::TestQuantizationAgent::test_int8_quantization
 ```
 
 ## Performance Benchmarks
 
-Tested on NVIDIA A100 80GB with Llama-3-8B-Instruct:
+Expected compression results on Google Gemma-12B:
 
-| Configuration | Accuracy | Latency | VRAM | Energy Savings |
-|---------------|----------|---------|------|----------------|
-| **Baseline** | 0.853 | 142ms | 38.2GB | - |
-| **AWQ 4-bit** | 0.847 | 67.3ms | 18.2GB | 68% |
-| **AWQ + Flash** | 0.847 | 52.8ms | 15.7GB | 74% |
-| **Aggressive** | 0.831 | 34.1ms | 9.8GB | 82% |
+| Configuration | Accuracy | Latency | Memory | Energy | CO₂ |
+|--------------|----------|---------|---------|---------|------|
+| Baseline | 100% | 100ms | 24GB | 0.084 kWh | 0.034 kg |
+| INT8 | 98% | 60ms | 12GB | 0.050 kWh | 0.020 kg |
+| 50% Pruning | 96% | 55ms | 12GB | 0.045 kWh | 0.018 kg |
+| INT4 + 30% Pruning | 94% | 35ms | 6GB | 0.030 kWh | 0.012 kg |
 
 ## Troubleshooting
 
 ### Common Issues
 
-**GPU Memory Errors**:
-```bash
-# Reduce model size or batch size
-export CUDA_VISIBLE_DEVICES=0
-python scripts/run_search.py --config configs/small_gpu.yaml
-```
+1. **CUDA Out of Memory**:
+   - Reduce batch size in evaluation
+   - Use gradient checkpointing
+   - Enable tensor parallelism
 
-**Installation Issues**:
-```bash
-# Use Docker for isolated environment
-make build && make run-docker
-```
+2. **Carbon Budget Exceeded**:
+   - Increase budget or reduce iterations
+   - Use more aggressive early stopping
+   - Schedule during low carbon intensity periods
 
-**Performance Issues**:
-```bash
-# Enable debug logging
-python scripts/run_search.py --log-level DEBUG
-```
+3. **Poor Compression Results**:
+   - Adjust weight parameters in objectives
+   - Try different search strategies
+   - Increase number of iterations
 
-### FAQ
+## Documentation
 
-**Q: How long does optimization take?**
-A: Baseline recipes: 15-30 minutes. Full search: 2-4 hours depending on configuration.
+Comprehensive documentation is available in the `docs/` directory:
 
-**Q: Can I run without GPU?**
-A: The system requires GPU for model inference. CPU-only mode is not recommended for production.
+- **[QUICKSTART.md](docs/QUICKSTART.md)** - 快速開始指南（中文）
+- **[EXECUTE_THIS.md](docs/EXECUTE_THIS.md)** - 執行指令清單（中文）
+- **[IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md)** - Complete implementation summary
+- **[CLAUDE.md](docs/CLAUDE.md)** - Developer guide for Claude Code
+- **[TODO.md](docs/TODO.md)** - Task list and implementation status
+- **[FINAL_SUMMARY.md](docs/FINAL_SUMMARY.md)** - Research findings summary
+- **[COMPLETION_SUMMARY.md](docs/COMPLETION_SUMMARY.md)** - Project completion summary
+- **[REFACTORING_SUMMARY.md](docs/REFACTORING_SUMMARY.md)** - Refactoring details
+- **[research_questions_analysis.md](docs/research_questions_analysis.md)** - RQ analysis
+- **[deepagents_integration_spec.md](docs/deepagents_integration_spec.md)** - DeepAgents integration
 
-**Q: How to add custom metrics?**
-A: Extend the MetricsCollector class and register new metrics in your custom agent.
+## Contributing
 
-## Roadmap
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-- [ ] **Support for more architectures**: Mamba, Mistral, Gemma
-- [ ] **Additional optimization techniques**: Sparse attention, MoE optimization  
-- [ ] **Distributed optimization**: Multi-node training and inference
-- [ ] **Integration with MLOps platforms**: Weights & Biases, MLflow
-- [ ] **Automated hyperparameter tuning**: Optuna integration
-- [ ] **Edge deployment**: ONNX/OpenVINO export
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
 
 ## Citation
 
-If you use LLM Compressor in your research, please cite:
+If you use this framework in your research, please cite:
 
 ```bibtex
-@software{llm_compressor2024,
-  title={LLM Compressor: Multi-Agent System for LLM Optimization},
-  author={LLM Compressor Team},
-  year={2024},
-  url={https://github.com/your-org/llm-compressor}
+@inproceedings{liu2025agentic,
+  title={Agentic Carbon-Efficient Compression for Large Language Models: Balancing Accuracy and Energy Efficiency},
+  author={Liu, Yan-Ru and Lin, Chien-Chang and Wang, Ting-An and Chang, Kai-En and Yang, Stephen J.H.},
+  booktitle={Proceedings of International Conference on AI for a Sustainable Society},
+  year={2025}
 }
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-- **Transformers**: Hugging Face ecosystem
-- **vLLM**: High-performance LLM serving
-- **AutoAWQ/AutoGPTQ**: Quantization libraries
-- **FlashAttention**: Memory-efficient attention
-- **Plotly**: Interactive visualizations
+- LangChain team for the agent framework
+- Google for the A2A Protocol
+- NVIDIA for GPU optimization tools
+- The Green AI community
+
+## Contact
+
+- **Lead Author**: Yan-Ru Liu (liu76214@gmail.com)
+- **GitHub Issues**: [Submit an issue](https://github.com/your-org/agentic-compression/issues)
+- **Discussion Forum**: [Join our Discord](https://discord.gg/your-invite)
+
+## Roadmap
+
+- [x] ~~Web UI for monitoring and control~~ ✅ **Streamlit UI implemented!**
+- [ ] Support for more model architectures (LLaMA, Mistral, etc.)
+- [ ] Integration with HuggingFace Model Hub
+- [ ] Real-time carbon intensity API integration
+- [ ] Distributed multi-GPU optimization
+- [ ] AutoML integration for hyperparameter tuning
+- [ ] Support for vision-language models
+- [ ] Edge deployment optimization
 
 ---
 
-**🚀 Ready to optimize your LLMs? Get started with `make quickstart`!**
+**Version**: 2.0.0
+**Last Updated**: January 2025
+**Status**: Active Development
+
+---
+
+## Screenshots
+
+### Streamlit Web UI
+
+**Home Page**:
+- Framework overview
+- Research questions summary
+- Quick start guide
+
+**Quick Optimization Page**:
+- Interactive parameter configuration
+- Real-time optimization progress
+- Pareto frontier visualization
+- Results export
+
+**Advanced Visualization Page**:
+- RQ1: Dynamic vs Static comparison
+- RQ3: Weight scheme analysis
+- RQ4: Environment adaptation testing
+
+**3D Explorer Page**:
+- Interactive 3D Pareto frontiers
+- Parallel coordinates visualization
+- Multi-objective radar charts
