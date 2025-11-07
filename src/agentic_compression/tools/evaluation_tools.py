@@ -1,5 +1,7 @@
 """
 Tools for model evaluation and benchmarking.
+
+REAL EVALUATION - Uses lm-evaluation-harness!
 """
 
 import asyncio
@@ -11,6 +13,10 @@ from pydantic import BaseModel, Field
 
 from ..core.config import BENCHMARK_CONFIGS, CompressionConfig
 from ..core.metrics import EvaluationMetrics
+from ..evaluation.benchmark_runner import BenchmarkRunner
+from ..inference.model_loader import ModelLoader
+from ..inference.quantizer import RealQuantizer
+from ..inference.pruner import RealPruner
 
 logger = logging.getLogger(__name__)
 
@@ -86,43 +92,78 @@ class EvaluationTool(BaseTool):
 
 async def evaluate_config_full(config: CompressionConfig) -> EvaluationMetrics:
     """
-    Evaluate a configuration across all benchmarks.
+    REAL evaluation of a configuration across all benchmarks.
+
+    This function performs ACTUAL model loading, compression, and evaluation
+    using lm-evaluation-harness on five benchmarks.
 
     Args:
         config: Compression configuration to evaluate
 
     Returns:
-        Complete evaluation metrics
+        Complete evaluation metrics from REAL benchmarks
+
+    Example:
+        >>> config = CompressionConfig(quantization_bits=8, pruning_sparsity=0.3)
+        >>> metrics = await evaluate_config_full(config)
+        >>> print(f"Real accuracy: {metrics.average_accuracy():.3f}")
     """
-    await asyncio.sleep(0.1)  # Simulate evaluation time
+    logger.info(f"Starting REAL evaluation with config: bits={config.quantization_bits}, sparsity={config.pruning_sparsity}")
 
-    # Calculate compression factor
-    compression_factor = (32 / config.quantization_bits) * (
-        1 / (1 - config.pruning_sparsity + 0.01)
-    )
+    try:
+        # 1. Load model (with or without quantization)
+        model_name = config.model_path
+        logger.info(f"Loading model: {model_name}")
 
-    # Calculate accuracy for each benchmark
-    accuracy = {}
-    for benchmark, bench_config in BENCHMARK_CONFIGS.items():
-        base_acc = bench_config["base_accuracy"]
-        sensitivity = bench_config["sensitivity_factor"]
+        if config.quantization_bits in [4, 8]:
+            # Load quantized model directly (only 4-bit and 8-bit supported by bitsandbytes)
+            model, tokenizer = RealQuantizer.load_quantized_model(
+                model_name=model_name,
+                bits=config.quantization_bits,
+                device_map="auto",
+            )
+            logger.info(f"Loaded {config.quantization_bits}-bit quantized model")
+        else:
+            # Load full precision model (for 16-bit and 32-bit)
+            loader = ModelLoader()
+            model, tokenizer = loader.load_model(model_name, device_map="auto")
+            logger.info(f"Loaded full precision model ({config.quantization_bits}-bit)")
 
-        quant_impact = (32 - config.quantization_bits) / 32 * 0.15
-        prune_impact = config.pruning_sparsity * 0.20
+        # 2. Apply pruning if needed
+        if config.pruning_sparsity > 0:
+            logger.info(f"Applying pruning with sparsity={config.pruning_sparsity:.1%}")
+            model = RealPruner.prune_model_unstructured(
+                model=model,
+                sparsity=config.pruning_sparsity,
+                method="l1",
+            )
+            logger.info("Pruning completed")
 
-        total_impact = (quant_impact + prune_impact) * sensitivity
-        accuracy[benchmark] = max(base_acc - total_impact, 0.3)
+        # 3. Run REAL evaluation on all benchmarks
+        logger.info("Running evaluation on all benchmarks...")
+        runner = BenchmarkRunner(
+            batch_size=8,
+            num_fewshot=5,
+            limit=None,  # Full evaluation
+        )
 
-    # Calculate resource metrics
-    metrics = EvaluationMetrics(
-        accuracy=accuracy,
-        latency_ms=100 / compression_factor,
-        memory_gb=24 / compression_factor,
-        energy_kwh=0.084 / compression_factor,
-        co2_kg=0.034 / compression_factor,
-        throughput_tps=1000 * compression_factor,
-        compression_ratio=compression_factor,
-        config=config,
-    )
+        metrics = await runner.run_all_benchmarks(
+            model=model,
+            tokenizer=tokenizer,
+            config=config,
+        )
 
-    return metrics
+        logger.info(f"Evaluation completed! Average accuracy: {metrics.average_accuracy():.3f}")
+
+        # 4. Cleanup
+        del model
+        del tokenizer
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+        return metrics
+
+    except Exception as e:
+        logger.error(f"Evaluation failed: {str(e)}")
+        raise

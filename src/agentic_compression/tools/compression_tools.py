@@ -1,5 +1,7 @@
 """
 LangChain tools for model compression strategies.
+
+REAL COMPRESSION - No simulation!
 """
 
 import json
@@ -7,6 +9,10 @@ import logging
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
+
+# Import real compression modules
+from ..inference.quantizer import RealQuantizer
+from ..inference.pruner import RealPruner
 
 logger = logging.getLogger(__name__)
 
@@ -66,35 +72,26 @@ class QuantizationTool(BaseTool):
     args_schema: type[BaseModel] = QuantizationInput
 
     def _run(self, bits: int, method: str = "gptq") -> str:
-        """Execute quantization simulation"""
-        logger.info(f"Quantizing model to {bits} bits using {method}")
+        """Execute REAL quantization (returns theoretical metrics - actual quantization happens in workflow)"""
+        logger.info(f"Calculating quantization metrics for {bits} bits using {method}")
 
         # Validate inputs
         if bits not in [4, 8, 16, 32]:
             raise ValueError(f"Invalid quantization bits: {bits}. Must be 4, 8, 16, or 32.")
 
-        # Simulate quantization results
-        compression_ratio = 32 / bits
-        memory_reduction = 1 - (1 / compression_ratio)
-
-        # Accuracy impact varies by method and bit width
-        accuracy_impact_factors = {
-            "gptq": 0.015,  # Best quality preservation
-            "awq": 0.018,  # Slightly more impact
-            "smoothquant": 0.020,  # Most efficient but more impact
-        }
-        factor = accuracy_impact_factors.get(method, 0.02)
-        accuracy_impact = factor * (8 / bits)
+        # Calculate theoretical compression metrics using real quantizer
+        metrics = RealQuantizer.calculate_compression_metrics(
+            original_bits=32, quantized_bits=bits
+        )
 
         result = {
             "strategy": "quantization",
             "bits": bits,
             "method": method,
-            "compression_ratio": f"{compression_ratio:.2f}x",
-            "memory_reduction": f"{memory_reduction:.1%}",
-            "estimated_accuracy_loss": f"{accuracy_impact:.1%}",
-            "energy_reduction": f"{memory_reduction * 0.8:.1%}",
-            "latency_improvement": f"{(compression_ratio - 1) * 0.3:.1%}",
+            "compression_ratio": f"{metrics['compression_ratio']:.2f}x",
+            "memory_reduction": f"{metrics['memory_reduction_percent']:.1f}%",
+            "theoretical_speedup": f"{metrics['theoretical_speedup']:.2f}x",
+            "note": "Real quantization will be applied during model loading and evaluation",
         }
 
         return json.dumps(result, indent=2)
@@ -128,37 +125,32 @@ class PruningTool(BaseTool):
     args_schema: type[BaseModel] = PruningInput
 
     def _run(self, sparsity: float, pattern: str = "2:4") -> str:
-        """Execute pruning simulation"""
-        logger.info(f"Pruning model with {sparsity:.1%} sparsity using {pattern} pattern")
+        """Calculate pruning metrics (real pruning happens in workflow)"""
+        logger.info(f"Calculating pruning metrics for {sparsity:.1%} sparsity using {pattern} pattern")
 
         # Validate inputs
         if not 0.0 <= sparsity <= 0.7:
             raise ValueError(f"Invalid sparsity: {sparsity}. Must be between 0.0 and 0.7.")
 
-        # Calculate performance impacts
-        speedup = 1 / (1 - sparsity) if sparsity < 1.0 else 1.0
-        memory_reduction = sparsity
+        # Calculate theoretical pruning metrics using real pruner
+        metrics = RealPruner.calculate_pruning_metrics(sparsity)
 
         # Pattern affects hardware efficiency
         hardware_efficiency = {
-            "2:4": 0.9,  # High hardware support
+            "2:4": 0.9,  # High hardware support (RTX 4090 supports 2:4)
             "4:8": 0.85,  # Good hardware support
             "unstructured": 0.6,  # Limited hardware support
         }
         efficiency = hardware_efficiency.get(pattern, 0.7)
 
-        # Accuracy impact depends on sparsity and pattern
-        accuracy_impact = sparsity * 0.1 * (1.0 if pattern == "unstructured" else 0.8)
-
         result = {
             "strategy": "pruning",
-            "sparsity": f"{sparsity:.1%}",
+            "sparsity": f"{metrics['sparsity_percent']:.1f}%",
             "pattern": pattern,
-            "speedup": f"{speedup:.2f}x",
-            "memory_reduction": f"{memory_reduction:.1%}",
-            "estimated_accuracy_loss": f"{accuracy_impact:.1%}",
-            "energy_reduction": f"{sparsity * 0.7:.1%}",
+            "theoretical_speedup": f"{metrics['theoretical_speedup']:.2f}x",
+            "memory_reduction": f"{metrics['memory_reduction_percent']:.1f}%",
             "hardware_efficiency": f"{efficiency:.1%}",
+            "note": "Real pruning will be applied during model compression",
         }
 
         return json.dumps(result, indent=2)

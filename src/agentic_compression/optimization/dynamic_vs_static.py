@@ -45,9 +45,9 @@ class DynamicVsStaticComparison:
         """
         logger.info("Starting dynamic compression optimization")
 
-        # Start with baseline config
+        # Start with baseline config (8-bit quantization, no pruning)
         config = CompressionConfig(
-            quantization_bits=16,
+            quantization_bits=8,
             pruning_sparsity=0.0,
             model_path=model,
             accuracy_threshold=accuracy_threshold,

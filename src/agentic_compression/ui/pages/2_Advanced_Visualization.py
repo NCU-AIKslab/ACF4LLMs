@@ -4,13 +4,21 @@ Page 2: Advanced Visualization
 Advanced visualization features for RQ1, RQ3, RQ4 analyses.
 """
 
+import sys
+from pathlib import Path
+
+# Add src directory to Python path for imports
+src_path = Path(__file__).parent.parent.parent.parent
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
 import streamlit as st
 
-from ...optimization.dynamic_vs_static import run_rq1_experiment
-from ...optimization.resource_adaptation import run_rq4_experiment
-from ...optimization.weighting import run_rq3_experiment
-from ..utils import export_results_json, init_session_state, run_async
-from ..visualizations import (
+from agentic_compression.optimization.dynamic_vs_static import run_rq1_experiment
+from agentic_compression.optimization.resource_adaptation import run_rq4_experiment
+from agentic_compression.optimization.weighting import run_rq3_experiment
+from agentic_compression.ui.utils import export_results_json, init_session_state, run_async
+from agentic_compression.ui.visualizations import (
     create_environment_comparison_chart,
     create_weight_comparison_chart,
 )

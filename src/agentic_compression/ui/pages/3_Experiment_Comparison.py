@@ -4,10 +4,18 @@ Page 3: Experiment Comparison
 Run and compare multiple configurations side-by-side.
 """
 
+import sys
+from pathlib import Path
+
+# Add src directory to Python path for imports
+src_path = Path(__file__).parent.parent.parent.parent
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
 import streamlit as st
 
-from ...graph.workflow import run_compression_optimization
-from ..utils import export_results_json, init_session_state, run_async
+from agentic_compression.graph.workflow import run_compression_optimization
+from agentic_compression.ui.utils import export_results_json, init_session_state, run_async
 
 st.set_page_config(page_title="Experiment Comparison", page_icon="🔬", layout="wide")
 
@@ -120,7 +128,7 @@ if st.session_state.experiments:
     st.subheader("Visualization Comparison")
 
     # Collect all solutions for overlay
-    from ...core.metrics import EvaluationMetrics, ParetoSolution
+    from agentic_compression.core.metrics import EvaluationMetrics, ParetoSolution
 
     all_solutions = []
     experiment_labels = []

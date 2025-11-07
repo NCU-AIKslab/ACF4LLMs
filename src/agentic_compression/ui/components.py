@@ -61,7 +61,7 @@ def render_best_solution_card(solution: EvaluationMetrics | dict):
     st.subheader("🏆 Best Solution")
 
     if isinstance(solution, dict):
-        accuracy = solution.get("accuracy", 0)
+        accuracy = solution.get("average_accuracy", 0)
         co2 = solution.get("co2_kg", 0)
         latency = solution.get("latency_ms", 0)
         memory = solution.get("memory_gb", 0)

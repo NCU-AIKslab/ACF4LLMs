@@ -4,10 +4,18 @@ Page 1: Quick Optimization
 Simple interface for running a single compression optimization.
 """
 
+import sys
+from pathlib import Path
+
+# Add src directory to Python path for imports
+src_path = Path(__file__).parent.parent.parent.parent
+if str(src_path) not in sys.path:
+    sys.path.insert(0, str(src_path))
+
 import streamlit as st
 
-from ...graph.workflow import run_compression_optimization
-from ..components import (
+from agentic_compression.graph.workflow import run_compression_optimization
+from agentic_compression.ui.components import (
     render_benchmark_accuracy_table,
     render_best_solution_card,
     render_carbon_progress,
@@ -15,8 +23,8 @@ from ..components import (
     render_pareto_solutions_table,
     render_summary_stats,
 )
-from ..utils import export_results_json, init_session_state, run_async
-from ..visualizations import create_2d_pareto_plot
+from agentic_compression.ui.utils import export_results_json, init_session_state, run_async
+from agentic_compression.ui.visualizations import create_2d_pareto_plot
 
 st.set_page_config(page_title="Quick Optimization", page_icon="🚀", layout="wide")
 
@@ -102,12 +110,12 @@ if st.session_state.optimization_results:
     st.subheader("📊 Pareto Frontier Visualization")
 
     if "pareto_frontier" in results and results["pareto_frontier"]:
-        from ...core.metrics import ParetoSolution
+        from agentic_compression.core.metrics import ParetoSolution
 
         # Convert dict to ParetoSolution objects
         pareto_solutions = []
         for sol_dict in results["pareto_frontier"]:
-            from ...core.metrics import EvaluationMetrics
+            from agentic_compression.core.metrics import EvaluationMetrics
 
             metrics = EvaluationMetrics(
                 accuracy=sol_dict.get("accuracy", {}),

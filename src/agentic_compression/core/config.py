@@ -140,34 +140,69 @@ CARBON_INTENSIVE_DC = EnvironmentConstraints(
 )
 
 
-# Benchmark-specific configuration
+# Benchmark-specific configuration (REAL benchmarks)
 BENCHMARK_CONFIGS = {
     BenchmarkType.GSM8K.value: {
-        "base_accuracy": 0.95,
-        "sensitivity_factor": 1.2,
-        "description": "Mathematical reasoning",
+        "description": "Mathematical reasoning (8-shot)",
+        "task_name": "gsm8k",
+        "num_fewshot": 8,
+        "primary_metric": "exact_match",
     },
     BenchmarkType.TRUTHFULQA.value: {
-        "base_accuracy": 0.85,
-        "sensitivity_factor": 1.0,
         "description": "Truthfulness and factual consistency",
+        "task_name": "truthfulqa_mc2",
+        "num_fewshot": 0,
+        "primary_metric": "acc",
     },
     BenchmarkType.COMMONSENSEQA.value: {
-        "base_accuracy": 0.90,
-        "sensitivity_factor": 1.1,
         "description": "Commonsense reasoning",
+        "task_name": "commonsenseqa",
+        "num_fewshot": 5,
+        "primary_metric": "acc",
     },
     BenchmarkType.HUMANEVAL.value: {
-        "base_accuracy": 0.80,
-        "sensitivity_factor": 1.5,
-        "description": "Code generation",
+        "description": "Code generation (pass@1)",
+        "task_name": "humaneval",
+        "num_fewshot": 0,
+        "primary_metric": "pass@1",
     },
     BenchmarkType.BIGBENCH.value: {
-        "base_accuracy": 0.88,
-        "sensitivity_factor": 1.15,
         "description": "Multi-domain challenging tasks",
+        "task_name": "bigbench_qa_wikidata",
+        "num_fewshot": 5,
+        "primary_metric": "acc",
     },
 }
+
+
+# Evaluation configuration
+@dataclass
+class EvaluationConfig:
+    """Configuration for model evaluation."""
+
+    batch_size: int = 8
+    num_fewshot: int = 5
+    limit: int | None = None  # Set to small number (e.g., 100) for quick testing
+    cache_dir: str = "./model_cache"
+    results_dir: str = "./eval_results"
+    device: str = "auto"
+
+    # Quick test mode (for development)
+    quick_test: bool = False
+    quick_test_limit: int = 50  # Only evaluate 50 samples per benchmark
+
+
+# Default evaluation configs
+EVAL_CONFIG_FULL = EvaluationConfig(
+    limit=None,  # Full evaluation
+    quick_test=False,
+)
+
+EVAL_CONFIG_QUICK = EvaluationConfig(
+    limit=50,  # Quick evaluation
+    quick_test=True,
+    batch_size=4,
+)
 
 
 # Default baseline metrics for a 12B parameter model

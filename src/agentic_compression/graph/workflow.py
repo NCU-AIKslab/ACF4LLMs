@@ -7,9 +7,29 @@ This replaces the A2A/GCP protocol with LangGraph-native agent orchestration.
 import logging
 from typing import Literal
 
-from langchain_core.messages import AIMessage
-from langgraph.checkpoint import MemorySaver
-from langgraph.graph import END, StateGraph
+try:
+    from langchain_core.messages import AIMessage
+except ImportError:
+    # Fallback for when langchain_core is not installed
+    AIMessage = None
+
+try:
+    from langgraph.checkpoint.memory import MemorySaver
+except ImportError:
+    try:
+        from langgraph.checkpoint import MemorySaver
+    except ImportError:
+        # Create a simple fallback MemorySaver
+        class MemorySaver:
+            def __init__(self):
+                self.storage = {}
+
+try:
+    from langgraph.graph import END, StateGraph
+except ImportError:
+    # Define fallback constants
+    END = "END"
+    StateGraph = None
 
 from ..core.config import CompressionConfig
 from ..core.metrics import ParetoSolution
@@ -18,6 +38,19 @@ from ..tools.evaluation_tools import evaluate_config_full
 from .state import CompressionState, create_initial_state
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+
+def create_message(content: str):
+    """Create a message object (AIMessage if available, dict otherwise)."""
+    if AIMessage is not None:
+        return AIMessage(content=content)
+    else:
+        return {"role": "assistant", "content": content}
 
 
 # ============================================================================
@@ -78,8 +111,8 @@ async def plan_optimization(state: CompressionState) -> CompressionState:
 
     # Add planning message
     state["messages"].append(
-        AIMessage(
-            content=f"Created optimization plan with {len(configs_to_explore)} configurations to explore"
+        create_message(
+            f"Created optimization plan with {len(configs_to_explore)} configurations to explore"
         )
     )
 
@@ -126,7 +159,7 @@ async def evaluate_configurations(state: CompressionState) -> CompressionState:
 
     # Add evaluation message
     state["messages"].append(
-        AIMessage(content=f"Evaluated {len(planned_configs_dict)} configurations")
+        create_message(f"Evaluated {len(planned_configs_dict)} configurations")
     )
 
     return state
@@ -166,8 +199,8 @@ async def compute_pareto(state: CompressionState) -> CompressionState:
 
     # Add message
     state["messages"].append(
-        AIMessage(
-            content=f"Found {len(pareto_frontier)} Pareto-optimal solutions. "
+        create_message(
+            f"Found {len(pareto_frontier)} Pareto-optimal solutions. "
             f"Best solution: accuracy={best.metrics.average_accuracy():.3f}, "
             f"CO2={best.metrics.co2_kg:.4f}kg"
         )
@@ -340,8 +373,9 @@ async def run_compression_optimization(
     # Create workflow
     workflow = create_compression_workflow()
 
-    # Run workflow
-    final_state = await workflow.ainvoke(initial_state)
+    # Run workflow with config for checkpointer
+    config = {"configurable": {"thread_id": "optimization_run"}}
+    final_state = await workflow.ainvoke(initial_state, config=config)
 
     # Extract results
     results = {

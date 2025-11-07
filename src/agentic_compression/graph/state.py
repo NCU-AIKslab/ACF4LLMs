@@ -4,8 +4,20 @@ LangGraph state definitions for compression workflow.
 
 from typing import Annotated, Any
 
-from langchain_core.messages import BaseMessage
-from langgraph.graph.message import add_messages
+try:
+    from langchain_core.messages import BaseMessage
+except ImportError:
+    # Fallback when langchain_core is not installed
+    BaseMessage = dict
+
+try:
+    from langgraph.graph.message import add_messages
+except ImportError:
+    # Fallback function when langgraph is not installed
+    def add_messages(left, right):
+        """Fallback message concatenation."""
+        return left + right if isinstance(left, list) and isinstance(right, list) else right
+
 from typing_extensions import TypedDict
 
 from ..core.config import CompressionConfig

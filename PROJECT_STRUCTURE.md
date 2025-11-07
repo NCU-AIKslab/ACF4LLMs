@@ -1,299 +1,130 @@
-# 📂 Project Structure
+# 📂 Project Structure (v2.1)
 
-Agentic Carbon-Efficient LLM Compression Framework v2.0
+最新的目錄整理，對齊目前倉庫實際狀態與 v2.1 的程式碼分層。此文件可作為快速導覽，方便追蹤主要程式碼、測試、實驗與長期記憶資產。
 
 ---
 
-## 📁 Directory Layout
+## 📁 目錄快照
 
 ```
 Green_AI/
-├── 📄 app.py                          # Streamlit main application
-├── 📄 README.md                       # Project overview (main entry point)
-├── 📄 requirements.txt                # Python dependencies
-├── 📄 pyproject.toml                  # Package configuration
-├── 📄 PROJECT_STRUCTURE.md            # This file
+├── README.md
+├── requirements.txt
+├── app.py
+├── quick_test.py
+├── test_real_evaluation.py
+├── test_deep_agent.py
+├── AGENT.md
+├── DEEP_AGENT_IMPLEMENTATION.md
+├── DEEP_AGENT_QUICKSTART.md
+├── REAL_EVALUATION_IMPLEMENTATION.md
+├── NO_API_KEY_NEEDED.md
+├── SUMMARY.md
+├── TODO.md
+├── PROJECT_STRUCTURE.md  ← 本文件
 │
-├── 📁 src/                            # Source code
+├── docs/
+│   ├── README.md
+│   ├── QUICKSTART.md
+│   ├── EXECUTE_THIS.md
+│   ├── IMPLEMENTATION_SUMMARY.md
+│   ├── CLAUDE.md
+│   └── TODO.md
+│
+├── examples/
+│   ├── run_all_experiments.py
+│   ├── simple_optimization.py
+│   ├── use_without_api_key.py
+│   └── __init__.py
+│
+├── src/
 │   └── agentic_compression/
 │       ├── __init__.py
-│       ├── cli.py                     # CLI stub (deprecated)
-│       │
-│       ├── 📁 core/                   # Core modules
-│       │   ├── __init__.py
-│       │   ├── config.py             # CompressionConfig, EnvironmentConstraints
-│       │   ├── metrics.py            # EvaluationMetrics, ParetoSolution
-│       │   └── pareto.py             # Pareto frontier algorithms
-│       │
-│       ├── 📁 optimization/           # Research question implementations
-│       │   ├── __init__.py
-│       │   ├── agent_driven.py       # RQ2: Agent-driven optimization
-│       │   ├── dynamic_vs_static.py  # RQ1: Dynamic vs static comparison
-│       │   ├── weighting.py          # RQ3: Weighting scheme analysis
-│       │   └── resource_adaptation.py # RQ4: Resource-constrained adaptation
-│       │
-│       ├── 📁 tools/                  # LangChain tools
-│       │   ├── __init__.py
-│       │   ├── compression_tools.py   # Quantization, pruning, KV, distillation
-│       │   ├── evaluation_tools.py    # Benchmark evaluation
-│       │   └── carbon_tools.py        # Carbon monitoring
-│       │
-│       ├── 📁 graph/                  # LangGraph workflow
-│       │   ├── __init__.py
-│       │   ├── state.py              # State schema
-│       │   └── workflow.py           # Workflow orchestration
-│       │
-│       ├── 📁 visualization/          # Plotting and analysis
-│       │   ├── __init__.py
-│       │   └── pareto_plots.py       # 2D/3D Pareto visualization
-│       │
-│       ├── 📁 ui/                     # Streamlit UI (NEW!)
-│       │   ├── __init__.py
-│       │   ├── components.py         # Reusable UI components
-│       │   ├── visualizations.py     # Plotly charts
-│       │   ├── utils.py              # Async helpers, formatters
-│       │   │
-│       │   └── 📁 pages/              # Streamlit pages
-│       │       ├── 1_Quick_Optimization.py
-│       │       ├── 2_Advanced_Visualization.py
-│       │       ├── 3_Experiment_Comparison.py
-│       │       └── 4_Interactive_3D_Explorer.py
-│       │
-│       └── 📁 agents/                 # Agent implementations (stubs)
-│           ├── __init__.py
-│           ├── base.py
-│           └── coordinator.py
+│       ├── cli.py
+│       ├── agents/
+│       ├── core/
+│       ├── evaluation/
+│       ├── graph/
+│       ├── inference/
+│       ├── optimization/
+│       ├── tools/
+│       ├── ui/
+│       └── visualization/
 │
-├── 📁 examples/                       # Usage examples
-│   ├── __init__.py
-│   ├── simple_optimization.py        # Basic optimization example
-│   └── run_all_experiments.py        # Full experiment suite
+├── tests/
+│   ├── test_core/
+│   └── test_optimization/
 │
-├── 📁 tests/                          # Test suite
-│   ├── __init__.py
-│   ├── 📁 test_core/                 # Core module tests
-│   │   ├── __init__.py
-│   │   ├── test_config.py
-│   │   ├── test_metrics.py
-│   │   └── test_pareto.py
-│   │
-│   ├── 📁 test_optimization/          # Optimization tests
-│   │   ├── __init__.py
-│   │   └── test_agent_driven.py
-│   │
-│   ├── 📁 test_tools/                 # Tool tests (to be added)
-│   │   └── __init__.py
-│   │
-│   ├── 📁 test_graph/                 # Workflow tests (to be added)
-│   │   └── __init__.py
-│   │
-│   └── 📁 test_agents/                # Agent tests (to be added)
-│       └── __init__.py
+├── workspace/
+│   ├── README.md
+│   ├── checkpoints/
+│   ├── experiments/
+│   └── knowledge/
 │
-└── 📁 docs/                           # Documentation
-    ├── README.md                      # Documentation index
-    ├── QUICKSTART.md                  # 快速開始指南（中文）
-    ├── EXECUTE_THIS.md                # 執行指令清單（中文）
-    ├── IMPLEMENTATION_SUMMARY.md      # Complete implementation summary
-    ├── CLAUDE.md                      # Developer guide
-    ├── TODO.md                        # Task list
-    ├── FINAL_SUMMARY.md               # Research findings
-    ├── COMPLETION_SUMMARY.md          # Project completion
-    ├── REFACTORING_SUMMARY.md         # Refactoring history
-    ├── research_questions_analysis.md # RQ analysis
-    └── deepagents_integration_spec.md # Integration spec
+├── mlruns/            # MLflow tracking artifacts
+├── .claude/           # Deep Agent local settings
+├── .pytest_cache/     # pytest cache（可清除）
+├── .ruff_cache/       # Ruff cache（可清除）
+└── .git/ …            # Git metadata
 ```
 
 ---
 
-## 📊 Statistics
-
-### Code Files
-- **Python files**: 40+ files
-- **Lines of code**: ~6,500+ lines
-- **Test files**: 4 test modules (more to be added)
-- **UI components**: 4 pages + 3 support modules
-
-### Documentation
-- **Total docs**: 11 markdown files
-- **Languages**: English + Chinese (中文)
-- **Pages**: ~100+ pages of documentation
+## 🚪 Entry Points & Scripts
+- `app.py`：新的根目錄 Streamlit wrapper，可直接 `streamlit run app.py`。
+- `quick_test.py`：匯入與環境檢查的煙霧測試。
+- `test_real_evaluation.py`：跑完真實模型壓縮 + lm-eval 基準的整合測試（預設 quick mode）。
+- `examples/run_all_experiments.py`：一次性觸發 RQ1–RQ4 的研究流程。
+- `streamlit run src/agentic_compression/ui/app.py`：啟動 Web UI；若想保留舊指令，也可自行建立根目錄 wrapper `app.py`。
+- `tests/`：使用 `pytest` 執行單元與研究邏輯測試，建議配合 `PYTHONPATH=$(pwd)/src`。
 
 ---
 
-## 🎯 Key Directories Explained
+## 🧱 Source Package (`src/agentic_compression`)
 
-### `src/agentic_compression/`
-**Main package directory**
-- All framework code lives here
-- Import as: `from agentic_compression.core import ...`
-
-### `src/agentic_compression/core/`
-**Core data structures and algorithms**
-- CompressionConfig: Configuration management
-- EvaluationMetrics: Performance metrics
-- Pareto algorithms: Multi-objective optimization
-
-### `src/agentic_compression/optimization/`
-**Research question implementations**
-- RQ1: Dynamic vs static (429 lines)
-- RQ2: Agent-driven optimization (fully working)
-- RQ3: Weighting analysis (453 lines)
-- RQ4: Resource adaptation (522 lines)
-
-### `src/agentic_compression/tools/`
-**LangChain tool implementations**
-- Compression tools (quantization, pruning, etc.)
-- Evaluation tools (benchmark testing)
-- Carbon monitoring tools
-
-### `src/agentic_compression/graph/`
-**LangGraph workflow orchestration**
-- Replaces old A2A/GCP protocol
-- State-based workflow
-- Checkpointing with MemorySaver
-
-### `src/agentic_compression/ui/` ⭐ NEW!
-**Streamlit web interface**
-- 4 interactive pages
-- Interactive visualizations (Plotly)
-- Real-time optimization tracking
-- Export capabilities
-
-### `tests/`
-**Test suite**
-- Unit tests for core modules
-- Integration tests for optimization
-- Async test support (pytest-asyncio)
-
-### `examples/`
-**Usage examples**
-- Simple optimization demonstration
-- Full experiment suite
-- Easy entry points for learning
-
-### `docs/`
-**Comprehensive documentation**
-- User guides (Chinese + English)
-- Developer guides
-- Implementation details
-- Research analysis
+| 子模組 | 說明 |
+| --- | --- |
+| `core/` | 核心資料結構，例如 `CompressionConfig`、`EvaluationMetrics`、Pareto 演算法。 |
+| `optimization/` | 研究問題 (RQ1–RQ4) 的策略引擎；`agent_driven.py` 為 v2.1 主力。 |
+| `tools/` | 量化、剪枝、碳排監測與 lm-eval 工具，供代理與工作流呼叫。 |
+| `evaluation/` | `BenchmarkRunner` 與 `lm_harness_adapter`，處理真實基準執行。 |
+| `graph/` | LangGraph 狀態機與 workflow 入口 (`workflow.py`)。 |
+| `agents/` | 深層代理（Anthropic Deep Agent、子代理工具、追蹤工具）。 |
+| `inference/` | 模型載入、量化、剪枝實作細節。 |
+| `ui/` | Streamlit app (`app.py` + components/visualizations/utils)。 |
+| `visualization/` | Pareto 與多維圖表產生器（Plotly）。 |
 
 ---
 
-## 🔄 Data Flow
-
-```
-User Input (Streamlit UI or Python API)
-    ↓
-Configuration (CompressionConfig)
-    ↓
-LangGraph Workflow (workflow.py)
-    ↓
-┌─────────────────────────────────────┐
-│  Planning → Evaluate → Pareto       │
-│     ↓          ↓          ↓          │
-│  Tools    Metrics    Frontier       │
-└─────────────────────────────────────┘
-    ↓
-Results (ParetoSolution)
-    ↓
-Visualization (Streamlit UI or plots)
-```
+## 📚 Documentation Sets
+- 根目錄：針對代理/深度實驗的專題說明 (`AGENT.md`, `DEEP_AGENT_*.md`, `REAL_EVALUATION_IMPLEMENTATION.md`, `SUMMARY.md`, `TODO.md`)。
+- `docs/`：面向使用者與開發者的指南：
+  - `README.md`: 文檔索引
+  - `QUICKSTART.md`, `EXECUTE_THIS.md`: 中文快速上手與指令清單
+  - `IMPLEMENTATION_SUMMARY.md`, `CLAUDE.md`: 架構與開發者指南
+  - `TODO.md`: 跨文件任務佇列
 
 ---
 
-## 🚀 Entry Points
-
-### For End Users:
-```bash
-streamlit run app.py
-```
-
-### For Developers:
-```python
-from agentic_compression.graph.workflow import run_compression_optimization
-
-results = await run_compression_optimization(
-    objective="...",
-    carbon_budget=5.0,
-    max_iterations=10
-)
-```
-
-### For Researchers:
-```python
-from agentic_compression.optimization.agent_driven import run_rq2_experiment
-
-results = await run_rq2_experiment(
-    model="google/gemma-12b",
-    accuracy_threshold=0.93,
-    carbon_budget=5.0
-)
-```
+## 🧪 Tests & Experiment Artifacts
+- `tests/test_core/`：對 `core` 元件（config、metrics、pareto）的單元測試。
+- `tests/test_optimization/`：驗證代理驅動優化流程。
+- `mlruns/`：MLflow run 資料夾（可清空或加入 `.gitignore` 保持乾淨）。
+- `workspace/`：Deep Agent 長期記憶（`experiments/`, `knowledge/`, `checkpoints/`）與 `README` 說明，可備份或納入版本控制以追蹤代理學習。
 
 ---
 
-## 📝 File Naming Conventions
-
-- **Python modules**: `snake_case.py`
-- **Classes**: `PascalCase`
-- **Functions**: `snake_case()`
-- **Constants**: `UPPER_CASE`
-- **Streamlit pages**: `N_Title_Case.py` (where N is order)
-- **Documentation**: `UPPER_CASE.md` or `snake_case.md`
+## ♻️ 建議的清理策略
+1. **產物分層**：`mlruns/`、`eval_results/`、`model_cache/` 及 `workspace/` 子資料夾（checkpoints/、experiments/、knowledge/）已加入 `.gitignore`，可放心保留本地結果而不污染版本控制。
+2. **快取清理**：`.pytest_cache/` 與 `.ruff_cache/` 可在需要時安全刪除，避免污染差異。
+3. **入口統一**：`app.py` 已作為 Streamlit wrapper，既可沿用 `streamlit run app.py`，也可直接執行 `streamlit run src/agentic_compression/ui/app.py`。
+4. **檔案分門別類**：若 `AGENT.md`、`DEEP_AGENT_*.md` 需要更高可發現性，可考慮移到 `docs/agents/` 子資料夾並更新引用（目前保留在根目錄以利深度代理開發記事）。
 
 ---
 
-## 🎨 Code Organization Principles
-
-1. **Modularity**: Each module has a single responsibility
-2. **Separation of Concerns**: Core/Tools/UI/Graph are independent
-3. **Testability**: Each module can be tested independently
-4. **Documentation**: Comprehensive docstrings throughout
-5. **Type Hints**: Gradually adding type annotations
-6. **Formatting**: Black + Ruff for consistency
-
----
-
-## 🔧 Development Workflow
-
-1. **Code changes** → Edit files in `src/`
-2. **Format** → `black src/` and `ruff check src/`
-3. **Test** → `pytest tests/`
-4. **Document** → Update relevant `.md` files in `docs/`
-5. **UI changes** → Modify `app.py` or `src/agentic_compression/ui/`
-
----
-
-## 📦 Package Distribution
-
-**Installation methods:**
-
-```bash
-# Development mode
-pip install -e .
-
-# From requirements.txt
-pip install -r requirements.txt
-
-# Minimal (UI only)
-pip install streamlit plotly pandas
-```
-
----
-
-## 🌟 Highlights
-
-✅ **Modular Architecture**: Clean separation of concerns
-✅ **Comprehensive Testing**: Test suite for core modules
-✅ **Rich Documentation**: 11 docs in English + Chinese
-✅ **Interactive UI**: Beautiful Streamlit interface
-✅ **Research-Ready**: All RQ implementations complete
-✅ **Production-Ready**: Formatted, linted, documented
-
----
-
-**Version**: 2.0.0
-**Last Updated**: 2025-01-28
-**Maintainer**: See git history
+## ✅ 快速檢查清單
+- [ ] `src/agentic_compression/` 為唯一可分發的 Python 套件來源。
+- [ ] 實驗腳本皆位於 `examples/` 或專用 `tests/` 下。
+- [ ] 文檔分成「根目錄研究筆記」與 `docs/` 專用指南。
+- [ ] 產物/快取獨立於 `workspace/`、`mlruns/`、`.pytest_cache/`、`.ruff_cache/`。
+- [ ] `PROJECT_STRUCTURE.md` 已與實際檔案同步，可作為未來增減檔案的更新基準。

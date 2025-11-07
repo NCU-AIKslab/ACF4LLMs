@@ -147,6 +147,12 @@ cython_debug/
 
 # Project-specific
 results/
+mlruns/
+eval_results/
+model_cache/
+workspace/checkpoints/
+workspace/experiments/
+workspace/knowledge/
 *.png
 *.jpg
 *.jpeg
@@ -215,3 +221,4 @@ grafana_data/
 # Generated documentation
 docs/build/
 docs/_build/
+mlruns/
