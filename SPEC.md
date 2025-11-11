@@ -173,7 +173,8 @@ Coordinator 會判斷是否啟動 KD（例如當 dataset 足夠大或 accuracy �
    * 評估流程由 Coordinator 根據 `dataset` 與推論出的目標指標決定：
 
      - 使用 dataset 的子集或快速 proxy 基準先做快速驗證（fast filter），對過濾過的候選再跑完整 benchmark。
-     - 蒐集的指標通常包含 accuracy、latency（ms/token）、memory（實際 VRAM 使用）、模型檔案大小與能源 proxy（或實測 GPU power log）。
+     - 標準 benchmark 套件：**GSM8K**（數學推理）、**CommonsenseQA**（常識推理）、**TruthfulQA**（真實性）、**HumanEval**（程式生成）、**BIG-Bench Hard**（複雜推理）。根據 `dataset` 選取相關子集評估。
+     - 蒐集的指標通常包含 accuracy（在上述 benchmark 上）、latency（ms/token）、memory（實際 VRAM 使用）、模型檔案大小與能源 proxy（或實測 GPU power log）。
 
    * 輸出標準化結果向量（可直接送入 reward）：
 
@@ -181,6 +182,11 @@ Coordinator 會判斷是否啟動 KD（例如當 dataset 足夠大或 accuracy �
      {
        "strategy_id": "...",
        "accuracy": 0.92,
+       "gsm8k_accuracy": 0.88,
+       "commonsense_accuracy": 0.85,
+       "truthful_accuracy": 0.87,
+       "humaneval_pass_rate": 0.42,
+       "bigbench_hard_accuracy": 0.65,
        "latency_ms": 130,
        "memory_gb": 6,
        "energy_j_per_1k_tokens": 35,
@@ -318,3 +324,260 @@ python scripts/run_pipeline.py --model "meta-llama/Meta-Llama-3-8B-Instruct" --d
 
 1) 在 repo 中新增 `src/coordinator.py` 與 `scripts/run_pipeline.py` 的初始骨架並提交一個 PR；
 2) 或先產出一個更完整的 `infer_spec` 實作與對應單元測試，並在本機跑一次 smoke test。
+
+---
+
+## 第五層延伸：Folder Schema（推薦目錄結構）
+
+以下是建議的 MVP + 擴展階段的文件夾與模組組織：
+
+```
+Green_AI/
+├── src/
+│   ├── __init__.py
+│   ├── coordinator/
+│   │   ├── __init__.py
+│   │   ├── coordinator.py              # 主要 Coordinator Agent（策略生成、episode 循環）
+│   │   ├── spec_inference.py            # infer_spec() 與相關推論邏輯
+│   │   └── pareto.py                   # Pareto frontier 管理與非支配解篩選
+│   ├── agents/
+│   │   ├── __init__.py
+│   │   ├── base.py                     # 所有 Agent 的基礎 (interface)
+│   │   ├── quantization_agent.py       # Quantization Agent (MVP)
+│   │   ├── evaluation_agent.py         # Evaluation Agent (MVP)
+│   │   ├── artifact_manager.py         # Checkpoint Manager (MVP)
+│   │   ├── finetune_agent.py           # Fine-tuning Agent (高優先)
+│   │   ├── pruning_agent.py            # Pruning Agent (高優先)
+│   │   ├── distillation_agent.py       # Distillation Agent (進階)
+│   │   ├── resource_monitor_agent.py   # Resource Monitor (進階)
+│   │   ├── data_manager_agent.py       # Data Manager (進階)
+│   │   └── search_agent.py             # Strategy/Search Agent (進階)
+│   ├── tools/
+│   │   ├── __init__.py
+│   │   ├── quantization_wrapper.py     # AutoRound / GPTQ / INT8 wrapper
+│   │   ├── pruning_wrapper.py          # LLM-Pruner / SparseGPT wrapper
+│   │   ├── distillation_wrapper.py     # TRL KD trainer wrapper
+│   │   ├── latency_estimator.py        # 計算壓縮完的模型每秒多少token
+│   │   ├── resource_detector.py        # VRAM / GPU / power 偵測
+│   │   └── dataset_utils.py            # dataset 子集、calibration samples 管理
+│   ├── evaluation/
+│   │   ├── __init__.py
+│   │   ├── benchmark_runner.py         # 多基準評估：GSM8K、CommonsenseQA、TruthfulQA、HumanEval、BIG-Bench Hard
+│   │   ├── metrics.py                  # 標準化指標計算（accuracy, latency, memory, energy）
+│   │   └── evaluators/
+│   │       ├── __init__.py
+│   │       ├── gsm8k_evaluator.py      # 數學推理評估
+│   │       ├── commonsense_evaluator.py # 常識推理評估
+│   │       ├── truthful_evaluator.py   # 真實性評估
+│   │       ├── humaneval_evaluator.py  # 程式生成評估
+│   │       ├── bigbench_hard_evaluator.py # 複雜推理評估
+│   │       └── latency_evaluator.py    # 推理時間估計
+│   ├── reward/
+│   │   ├── __init__.py
+│   │   └── reward_function.py          # Weighted multi-objective reward 計算
+│   └── common/
+│       ├── __init__.py
+│       ├── config.py                   # 全域設定、預設超參
+│       ├── schemas.py                  # strategy / result / action JSON schema
+│       ├── exceptions.py               # 自定義 exception
+│       └── logging_utils.py            # 紀錄與 debug 工具
+├── scripts/
+│   ├── __init__.py
+│   ├── run_pipeline.py                 # CLI 入口（主流程）
+│   ├── utils.py                        # CLI 工具函數
+│   └── examples/
+│       ├── simple_quant.py             # 簡單量化範例
+│       └── end_to_end_demo.py          # 完整 e2e 示範
+├── tests/
+│   ├── __init__.py
+│   ├── unit/
+│   │   ├── __init__.py
+│   │   ├── test_spec_inference.py      # infer_spec 單元測試
+│   │   ├── test_reward_function.py     # reward 計算測試
+│   │   ├── test_agents/
+│   │   │   ├── __init__.py
+│   │   │   ├── test_quantization.py
+│   │   │   ├── test_evaluation.py
+│   │   │   └── test_artifact_manager.py
+│   │   └── test_tools/
+│   │       ├── __init__.py
+│   │       └── test_latency_estimator.py
+│   └── integration/
+│   │   ├── __init__.py
+│   │   ├── test_end_to_end.py          # 簡單 e2e pipeline 測試（mock agents）
+│   │   └── test_coordinator_workflow.py
+├── data/
+│   ├── cache/
+│   │   └── .gitkeep                    # calibration samples、eval subset 快取
+│   ├── checkpoints/
+│   │   └── .gitkeep                    # 量化/微調後的 checkpoint
+│   └── experiments/
+│       └── .gitkeep                    # 實驗結果、metrics JSON、報告
+├── docs/
+│   ├── SPEC.md                         # 本文件（架構規格）
+│   ├── API.md                          # Agent / action / result JSON schema 文件
+│   ├── QUICK_START.md                  # MVP 快速上手指南
+│   └── EXAMPLES.md                     # 使用範例與常見問題
+├── config/
+│   ├── default.yaml                    # 預設超參、工具路徑、硬體設定
+│   ├── models/
+│   │   └── model_profiles.yaml         # model_name → 推估大小、工具相容性
+│   └── datasets/
+│       └── dataset_profiles.yaml       # dataset → primary objective、子集大小
+├── .env.example                        # 環境變數範本（HF token、資料路徑等）
+├── requirements.txt                    # 完整工具鏈依賴（AutoRound, GPTQ, LLM-Pruner 等）
+├── .gitignore
+└── README.md
+```
+
+關鍵檔案職責速覽
+
+MVP 核心（必須）
+- `src/coordinator/coordinator.py` — 主循環：初始化、策略生成、調用 agents、更新 Pareto
+- `src/coordinator/spec_inference.py` — infer_spec()，根據 model/dataset 推論
+- `src/agents/base.py` — Agent 基類，定義 run() 介面與 contract
+- `src/agents/quantization_agent.py` — 調用量化工具，回傳結果
+- `src/agents/evaluation_agent.py` — 執行評估、回傳指標向量
+- `src/agents/artifact_manager.py` — checkpoint 儲存/載入、metadata
+- `src/common/schemas.py` — 標準化 action/result JSON schema
+- `scripts/run_pipeline.py` — CLI entry point
+- `tests/test_spec_inference.py` — infer_spec 單元測試
+- `tests/integration/test_end_to_end.py` — smoke test (mock agents)
+
+高優先（次階段）
+- `src/agents/finetune_agent.py`, `pruning_agent.py` — 新增壓縮方法
+- `src/tools/quantization_wrapper.py` — 實際工具呼叫（mock → real）
+- `src/evaluation/evaluators/accuracy_evaluator.py` — 實際 benchmark（proxy → full）
+- `src/reward/reward_function.py` — 多目標 reward 計算
+
+可選 / 進階
+- `src/agents/search_agent.py` — 獨立搜尋模組（若需複雜優化）
+- `src/agents/resource_monitor_agent.py` — 動態資源監控
+- `src/agents/data_manager_agent.py` — dataset 管理
+- `config/models/model_profiles.yaml`, `datasets/dataset_profiles.yaml` — 知識庫
+- `docs/API.md`, `DEPLOYMENT.md` — 擴展文件
+
+初始化步驟（開發流程）
+
+1. 從 MVP 必須清單開始，逐個 commit（每個檔案或邏輯單元一個 commit）。
+2. 先用 mock agent 與 mock tools 跑完 e2e 測試，確認流程邏輯正確。
+3. 逐步替換 mock 為真實工具（GPTQ、AutoRound 等）並測試。
+4. 增加高優先級 agents（finetune, pruning）與完整 evaluation。
+5. 集成搜尋、資源監控等可選模組。
+
+推薦 import 結構（使用者視角）
+
+```python
+# 簡單使用
+from src.coordinator import Coordinator
+from src.common.schemas import StrategySpec
+
+coordinator = Coordinator(model_name="meta-llama/Meta-Llama-3-8B-Instruct", dataset="gsm8k")
+best_solutions = coordinator.run(budget_hours=2)
+
+# 進階：自定義 search agent / tools
+from src.agents.search_agent import BayesianSearchAgent
+coordinator = Coordinator(..., search_agent=BayesianSearchAgent(...))
+```
+
+---
+
+## 附錄：Benchmark 套件規格
+
+為了提供全面且科學的評估，本框架採用以下 5 個業界標準 benchmark：
+
+### 1. GSM8K（Grade School Math 8K）
+- **目的**：評估模型的數學推理與逐步解題能力
+- **規模**：8,500 個八年級數學題目
+- **評分**：exact match（完全正確的最終答案）
+- **適用場景**：需要強邏輯推理的壓縮任務
+- **典型精度**：原始模型 90–95%，量化後通常下降 1–3%
+
+### 2. CommonsenseQA
+- **目的**：評估模型的常識推理與知識理解
+- **規模**：12,000+ 多選題（5 個選項）
+- **評分**：accuracy (%)
+- **適用場景**：日常應用、對話系統
+- **典型精度**：原始模型 80–90%
+
+### 3. TruthfulQA
+- **目的**：評估模型回答的真實性與避免虛構（hallucination）
+- **規模**：817 個開放式問題
+- **評分**：GPT-3.5 / Claude 人工評分（真實性 + 資訊性）或自動評分
+- **適用場景**：需要可信回答的應用
+- **典型精度**：原始模型 40–60%（較難）
+
+### 4. HumanEval
+- **目的**：評估程式碼生成能力
+- **規模**：164 個 Python 程式挑戰
+- **評分**：pass@1（第一次生成成功通過 unittest）
+- **適用場景**：程式助手、程式碼補全
+- **典型精度**：原始模型 50–80%（與模型大小相關）
+
+### 5. BIG-Bench Hard（BBH）
+- **目的**：評估模型在複雜推理任務上的表現
+- **規模**：23 個子任務（邏輯、知識、多步推理等）
+- **評分**：平均 accuracy
+- **適用場景**：綜合難題、多步推理
+- **典型精度**：原始模型 50–75%（與任務難度高度相關）
+
+### 評估策略
+
+**快速 proxy 評估（開發階段）**
+- 使用各 benchmark 的 100–500 樣本子集
+- 快速篩選出明顯無效的策略（accuracy 下降 > 5%）
+- 目的：加速 episode 循環，節省計算資源
+
+**完整評估（候選篩選）**
+- 對 Pareto frontier 前 N 個策略跑完整 benchmark
+- 使用所有樣本或官方指定子集
+- 計算 per-benchmark accuracy 與平均值
+- 產生詳細報告
+
+### 結果聚合
+
+最終的 Evaluation Agent 輸出：
+
+```json
+{
+  "strategy_id": "s_balanced_42",
+  "benchmark_results": {
+    "gsm8k": {
+      "accuracy": 0.87,
+      "n_samples": 1000
+    },
+    "commonsenseqa": {
+      "accuracy": 0.82,
+      "n_samples": 1000
+    },
+    "truthfulqa": {
+      "accuracy": 0.45,
+      "n_samples": 817
+    },
+    "humaneval": {
+      "pass_rate": 0.38,
+      "n_samples": 164
+    },
+    "bigbench_hard": {
+      "accuracy": 0.62,
+      "n_samples": 23
+    }
+  },
+  "aggregate_accuracy": 0.63,
+  "latency_ms": 135,
+  "memory_gb": 5.8,
+  "model_size_gb": 6.2,
+  "energy_j_per_1k_tokens": 38,
+  "valid": true,
+  "compression_ratio": 3.2
+}
+```
+
+### Benchmark 選擇邏輯（根據 dataset 參數）
+
+- 若 dataset = `gsm8k` → 主要跑 GSM8K（proxy 100 樣本，full 1000）
+- 若 dataset = `general` / `default` → 跑全部 5 個 benchmark（平衡評估）
+- 若 dataset = `code` → 主要跑 HumanEval
+- 若 dataset = `reasoning` → 主要跑 BBH
+
+用戶也可在進階模式下自定義 benchmark 組合。
