@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Literal
 
 from langgraph.graph import StateGraph, START, END
-from langgraph.graph.graph import CompiledGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -38,6 +38,8 @@ from src.agents.quantization_agent import (
     estimate_quantization_vram,
     validate_quantization_compatibility,
     list_available_quantization_methods,
+    apply_lora_finetuning,
+    apply_qlora_finetuning,
 )
 from src.agents.evaluation_agent import (
     evaluate_model,
@@ -50,6 +52,12 @@ from src.agents.search_agent import (
     evolutionary_search,
     multi_armed_bandit_search,
     analyze_search_history,
+)
+from src.agents.pruning_agent import (
+    prune_model,
+    estimate_pruning_speedup,
+    validate_pruning_compatibility,
+    list_available_pruning_methods,
 )
 
 
@@ -64,12 +72,29 @@ You make autonomous decisions about which compression strategies to try next bas
 
 Available actions:
 - "quantization": Apply a quantization strategy (AutoRound, GPTQ, INT8, AWQ with various bit-widths)
+- "lora": Apply LoRA fine-tuning (for accuracy recovery after aggressive compression)
+- "qlora": Apply QLoRA (4-bit base + LoRA, memory-efficient training for large models)
+- "pruning": Apply pruning to remove weights (magnitude or structured pruning)
 - "search": Use optimization algorithms to suggest better strategies
 - "end": Terminate optimization (when converged or budget exhausted)
 
 When choosing quantization, specify:
 - method: One of "autoround", "gptq", "int8", "awq"
 - bits: 2, 3, 4, or 8
+
+When choosing lora/qlora, specify:
+- method: "lora" or "qlora"
+- lora_rank: 8, 16, 32, or 64 (higher = more capacity but larger adapter)
+
+When choosing pruning, specify:
+- method: One of "magnitude", "structured"
+- sparsity: Target sparsity ratio (0.1 to 0.7, e.g., 0.3 = 30% weights removed)
+- granularity: For structured pruning, one of "channel", "head"
+
+Compression strategy tips:
+- Use LoRA/QLoRA to recover accuracy after aggressive quantization (e.g., 4-bit)
+- QLoRA is preferred for large models due to memory efficiency
+- Pruning can be combined with quantization - prune first, then quantize for maximum compression
 
 Always explain your reasoning before deciding."""
 
@@ -81,6 +106,8 @@ Available methods:
 - gptq: Post-training quantization, fast and efficient (supports 2,3,4,8 bits)
 - int8: 8-bit quantization via BitsAndBytes, simple and reliable
 - awq: Activation-aware weight quantization, best accuracy preservation (supports 4 bits)
+- lora: LoRA fine-tuning - adds trainable adapters without modifying base weights
+- qlora: QLoRA - loads base model in 4-bit, trains LoRA adapters (memory efficient)
 
 Consider model size and VRAM constraints when selecting parameters."""
 
@@ -149,11 +176,11 @@ class LangGraphCoordinator:
 
         # Initialize LLMs
         self.llm_coordinator = ChatOpenAI(
-            model="gpt-4o",
+            model="gpt-5.2",
             temperature=0.7,
         )
         self.llm_worker = ChatOpenAI(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             temperature=0,
         )
 
@@ -164,7 +191,7 @@ class LangGraphCoordinator:
         with open(self.experiment_dir / "model_spec.json", "w") as f:
             json.dump(self.model_spec.model_dump(), f, indent=2, default=str)
 
-    def _build_graph(self) -> CompiledGraph:
+    def _build_graph(self) -> CompiledStateGraph:
         """Build the LangGraph state machine.
 
         Returns:
@@ -175,6 +202,7 @@ class LangGraphCoordinator:
         # Add nodes
         graph.add_node("coordinator", self._coordinator_node)
         graph.add_node("quantization", self._quantization_node)
+        graph.add_node("pruning", self._pruning_node)
         graph.add_node("evaluation", self._evaluation_node)
         graph.add_node("search", self._search_node)
         graph.add_node("update_state", self._update_state_node)
@@ -188,6 +216,7 @@ class LangGraphCoordinator:
             self._route_from_coordinator,
             {
                 "quantization": "quantization",
+                "pruning": "pruning",
                 "search": "search",
                 "end": END,
             }
@@ -195,6 +224,7 @@ class LangGraphCoordinator:
 
         # Fixed edges
         graph.add_edge("quantization", "evaluation")
+        graph.add_edge("pruning", "evaluation")
         graph.add_edge("evaluation", "update_state")
         graph.add_edge("search", "coordinator")
         graph.add_edge("update_state", "coordinator")
@@ -214,7 +244,10 @@ class LangGraphCoordinator:
             return "end"
 
         action = state.get("next_action", "end")
-        if action in ["quantization", "search"]:
+        # Route lora/qlora to the quantization node (handles all compression methods)
+        if action in ["quantization", "lora", "qlora"]:
+            return "quantization"
+        if action in ["pruning", "search"]:
             return action
         return "end"
 
@@ -259,11 +292,15 @@ Model Info:
 
 What should be the next action? Choose one:
 1. "quantization" with specific method and bits
-2. "search" to explore new strategies
-3. "end" if converged or should stop
+2. "lora" or "qlora" with lora_rank for fine-tuning
+3. "pruning" with method, sparsity, and granularity
+4. "search" to explore new strategies
+5. "end" if converged or should stop
 
 Respond in JSON format:
-{{"action": "quantization|search|end", "method": "autoround|gptq|int8|awq", "bits": 4, "reasoning": "..."}}
+For quantization: {{"action": "quantization", "method": "autoround|gptq|int8|awq", "bits": 4, "reasoning": "..."}}
+For LoRA/QLoRA: {{"action": "lora|qlora", "method": "lora|qlora", "lora_rank": 16, "reasoning": "..."}}
+For pruning: {{"action": "pruning", "method": "magnitude|structured", "sparsity": 0.3, "granularity": "weight|channel|head", "reasoning": "..."}}
 """
 
         # Call LLM
@@ -305,6 +342,17 @@ Respond in JSON format:
                 "method": decision.get("method", "gptq"),
                 "bits": decision.get("bits", 4),
             }
+        elif action in ["lora", "qlora"]:
+            action_params = {
+                "method": action,
+                "lora_rank": decision.get("lora_rank", 16),
+            }
+        elif action == "pruning":
+            action_params = {
+                "method": decision.get("method", "magnitude"),
+                "sparsity": decision.get("sparsity", 0.3),
+                "granularity": decision.get("granularity", "weight"),
+            }
 
         return {
             "next_action": action,
@@ -315,7 +363,7 @@ Respond in JSON format:
         }
 
     def _quantization_node(self, state: CompressionState) -> Dict[str, Any]:
-        """Quantization node: Apply compression strategy.
+        """Quantization node: Apply compression strategy (quantization or LoRA/QLoRA).
 
         Args:
             state: Current compression state
@@ -325,18 +373,112 @@ Respond in JSON format:
         """
         params = state.get("action_params", {})
         method = params.get("method", "gptq")
-        bits = params.get("bits", 4)
 
-        print(f"  Applying {method} {bits}-bit quantization...")
+        # Handle LoRA/QLoRA fine-tuning
+        if method in ["lora", "qlora"]:
+            lora_rank = params.get("lora_rank", 16)
+            print(f"  Applying {method.upper()} fine-tuning with rank={lora_rank}...")
+
+            # Create strategy
+            strategy = CompressionStrategy(
+                episode_id=state["current_episode"],
+                strategy_id=f"strategy_{state['current_episode']:03d}",
+                methods=[CompressionMethod(method.lower())],
+                lora_rank=lora_rank,
+                calibration_dataset=state["dataset"],
+            )
+
+            # Save strategy
+            episode_dir = Path(state["experiment_dir"]) / f"episode_{state['current_episode']:03d}"
+            episode_dir.mkdir(parents=True, exist_ok=True)
+            with open(episode_dir / "strategy.json", "w") as f:
+                json.dump(strategy.model_dump(), f, indent=2, default=str)
+
+            # Execute LoRA/QLoRA fine-tuning
+            try:
+                if method == "lora":
+                    result = apply_lora_finetuning.invoke({
+                        "model_path": state["model_name"],
+                        "lora_rank": lora_rank,
+                        "calibration_dataset": state["dataset"],
+                    })
+                else:  # qlora
+                    result = apply_qlora_finetuning.invoke({
+                        "model_path": state["model_name"],
+                        "lora_rank": lora_rank,
+                        "bits": 4,
+                        "calibration_dataset": state["dataset"],
+                    })
+                compressed_path = result.get("checkpoint_path", f"data/checkpoints/{strategy.strategy_id}")
+                print(f"  Adapter saved to: {compressed_path}")
+            except Exception as e:
+                print(f"  {method.upper()} fine-tuning failed: {e}")
+                compressed_path = None
+
+        else:
+            # Handle standard quantization methods
+            bits = params.get("bits", 4)
+            print(f"  Applying {method} {bits}-bit quantization...")
+
+            # Create strategy
+            strategy = CompressionStrategy(
+                episode_id=state["current_episode"],
+                strategy_id=f"strategy_{state['current_episode']:03d}",
+                methods=[CompressionMethod(method)],
+                quantization_method=method,
+                quantization_bits=bits,
+                calibration_dataset=state["dataset"],
+            )
+
+            # Save strategy
+            episode_dir = Path(state["experiment_dir"]) / f"episode_{state['current_episode']:03d}"
+            episode_dir.mkdir(parents=True, exist_ok=True)
+            with open(episode_dir / "strategy.json", "w") as f:
+                json.dump(strategy.model_dump(), f, indent=2, default=str)
+
+            # Execute quantization
+            try:
+                result = quantize_model.invoke({
+                    "model_path": state["model_name"],
+                    "method": method,
+                    "bit_width": bits,
+                    "calibration_samples": state["model_spec"].get("calibration_samples", 512),
+                })
+                compressed_path = result.get("checkpoint_path", f"data/checkpoints/{strategy.strategy_id}")
+                print(f"  Compressed model saved to: {compressed_path}")
+            except Exception as e:
+                print(f"  Quantization failed: {e}")
+                compressed_path = None
+
+        return {
+            "current_strategy": strategy.model_dump(),
+            "compressed_model_path": compressed_path,
+        }
+
+    def _pruning_node(self, state: CompressionState) -> Dict[str, Any]:
+        """Pruning node: Apply pruning compression strategy.
+
+        Args:
+            state: Current compression state
+
+        Returns:
+            State updates with current_strategy and compressed_model_path
+        """
+        params = state.get("action_params", {})
+        method = params.get("method", "magnitude")
+        sparsity = params.get("sparsity", 0.3)
+        granularity = params.get("granularity", "weight")
+
+        print(f"  Applying {method} pruning with {sparsity*100:.0f}% sparsity...")
 
         # Create strategy
         strategy = CompressionStrategy(
             episode_id=state["current_episode"],
             strategy_id=f"strategy_{state['current_episode']:03d}",
-            methods=[CompressionMethod(method)],
-            quantization_method=method,
-            quantization_bits=bits,
-            calibration_dataset=state["dataset"],
+            methods=[CompressionMethod.PRUNING],
+            pruning_ratio=sparsity,
+            pruning_method=method,
+            pruning_granularity=granularity,
         )
 
         # Save strategy
@@ -345,18 +487,18 @@ Respond in JSON format:
         with open(episode_dir / "strategy.json", "w") as f:
             json.dump(strategy.model_dump(), f, indent=2, default=str)
 
-        # Execute quantization
+        # Execute pruning
         try:
-            result = quantize_model.invoke({
+            result = prune_model.invoke({
                 "model_path": state["model_name"],
                 "method": method,
-                "bit_width": bits,
-                "calibration_samples": state["model_spec"].get("calibration_samples", 512),
+                "sparsity": sparsity,
+                "granularity": granularity,
             })
             compressed_path = result.get("checkpoint_path", f"data/checkpoints/{strategy.strategy_id}")
-            print(f"  Compressed model saved to: {compressed_path}")
+            print(f"  Pruned model saved to: {compressed_path}")
         except Exception as e:
-            print(f"  Quantization failed: {e}")
+            print(f"  Pruning failed: {e}")
             compressed_path = None
 
         return {
