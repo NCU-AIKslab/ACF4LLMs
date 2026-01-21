@@ -168,23 +168,32 @@ def get_pareto_summary(state: CompressionState) -> str:
         acc = result.get("accuracy", 0)
         latency = result.get("latency_ms", 0)
         size = result.get("model_size_gb", 0)
+        co2 = result.get("co2_grams")
         method = strategy.get("quantization_method", "unknown")
         bits = strategy.get("quantization_bits", "?")
 
+        # Include CO2 if available
+        co2_str = f", CO2={co2:.2f}g" if co2 is not None else ""
         summary_lines.append(
             f"  {i}. {method} {bits}-bit: "
-            f"acc={acc:.3f}, latency={latency:.1f}ms, size={size:.2f}GB"
+            f"acc={acc:.3f}, latency={latency:.1f}ms, size={size:.2f}GB{co2_str}"
         )
 
     # Add gap analysis
     if len(frontier) >= 2:
         accuracies = [s["result"].get("accuracy", 0) for s in frontier]
         latencies = [s["result"].get("latency_ms", 0) for s in frontier]
+        co2_values = [s["result"].get("co2_grams") for s in frontier
+                      if s["result"].get("co2_grams") is not None]
 
         acc_range = max(accuracies) - min(accuracies)
         latency_range = max(latencies) - min(latencies)
 
-        summary_lines.append(f"\nCoverage: accuracy range={acc_range:.3f}, latency range={latency_range:.1f}ms")
+        coverage_str = f"\nCoverage: accuracy range={acc_range:.3f}, latency range={latency_range:.1f}ms"
+        if co2_values:
+            co2_range = max(co2_values) - min(co2_values)
+            coverage_str += f", CO2 range={co2_range:.2f}g"
+        summary_lines.append(coverage_str)
 
     return "\n".join(summary_lines)
 

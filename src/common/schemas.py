@@ -101,7 +101,14 @@ class EvaluationResult(BaseModel):
     latency_ms: float = Field(..., description="Average inference latency in ms")
     throughput_tokens_per_sec: float = Field(..., description="Inference throughput")
     memory_gb: float = Field(..., description="Peak memory usage during inference")
-    energy_joules: Optional[float] = Field(None, description="Energy consumption per inference")
+
+    # Energy/Carbon metrics
+    energy_joules: Optional[float] = Field(None, description="Energy consumption per inference in Joules")
+    energy_kwh: Optional[float] = Field(None, description="Total energy consumed in kWh")
+    co2_grams: Optional[float] = Field(None, description="CO2 emissions in grams")
+    co2_kg: Optional[float] = Field(None, description="CO2 emissions in kg")
+    num_inferences_measured: Optional[int] = Field(None, description="Number of inferences for energy measurement")
+    is_carbon_mock: bool = Field(False, description="Whether carbon measurement is mocked")
 
     # Per-benchmark results
     benchmark_scores: Dict[str, float] = Field(

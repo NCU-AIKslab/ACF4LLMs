@@ -337,22 +337,25 @@ class CompressionPipeline:
         # Build parameters
         params = {**step.params}
 
+        # Get category value (handle both string and enum)
+        category = skill.category if isinstance(skill.category, str) else skill.category.value
+
         # Add model path with appropriate parameter name
-        if skill.category.value == "quantization":
+        if category == "quantization":
             params["model_path"] = model_path
             params["output_dir"] = output_dir
             # Set method for quantization skills
             if "quantization_" in step.skill_name:
                 method = step.skill_name.replace("quantization_", "")
                 params["method"] = method
-        elif skill.category.value == "pruning":
+        elif category == "pruning":
             params["model_path"] = model_path
             params["output_dir"] = output_dir
             # Set method for pruning skills
             if "pruning_" in step.skill_name:
                 method = step.skill_name.replace("pruning_", "")
                 params["method"] = method
-        elif skill.category.value == "finetuning":
+        elif category == "finetuning":
             params["model_path"] = model_path
             params["output_dir"] = output_dir
 

@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, Literal, List
 
+import torch
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import create_react_agent
@@ -51,6 +53,7 @@ from src.agents.evaluation_agent import (
     run_proxy_evaluation,
     measure_inference_latency,
     measure_memory_usage,
+    estimate_energy_consumption,
 )
 from src.agents.search_agent import (
     bayesian_optimization_search,
@@ -84,13 +87,22 @@ from src.skills import (
 
 # Base system prompt (will be enhanced with dynamic skills)
 COORDINATOR_SYSTEM_PROMPT_BASE = """You are an expert model compression optimization coordinator.
-Your goal is to find Pareto-optimal compression strategies that balance accuracy, latency, memory, and model size.
+Your goal is to find Pareto-optimal compression strategies that balance:
+- Accuracy (higher is better)
+- Latency (lower is better)
+- Memory usage (lower is better)
+- Model size (lower is better)
+- Carbon emissions / CO2 (lower is better)
+
+Consider environmental impact when making decisions. Lower bit quantization
+typically results in lower energy consumption and CO2 emissions.
 
 You make autonomous decisions about which compression strategies to try next based on:
-1. Current Pareto frontier analysis - identify gaps in the accuracy/latency/size trade-off space
+1. Current Pareto frontier analysis - identify gaps in the accuracy/latency/size/CO2 trade-off space
 2. Historical results - learn from successful and failed strategies
 3. Model characteristics - choose methods suitable for the model family
 4. Skill recommendations - leverage learned knowledge from past experiments
+5. Carbon efficiency - prefer strategies that reduce environmental impact
 
 Available actions:
 - "quantization": Apply a single quantization strategy
@@ -245,11 +257,11 @@ class LangGraphCoordinator:
 
         # Initialize LLMs
         self.llm_coordinator = ChatOpenAI(
-            model="gpt-4o",
+            model="gpt-5.2",
             temperature=0.7,
         )
         self.llm_worker = ChatOpenAI(
-            model="gpt-4o",
+            model="gpt-5.2",
             temperature=0,
         )
 
@@ -371,6 +383,17 @@ class LangGraphCoordinator:
         recommended_pipelines = get_templates_for_model_family(model_family)
         pipelines_str = f"Recommended pipelines for {model_family}: {', '.join(recommended_pipelines[:3])}"
 
+        # Extract CO2 metrics from Pareto frontier for context
+        pareto_frontier = state.get("pareto_frontier", [])
+        co2_summary = ""
+        if pareto_frontier:
+            co2_values = [s.get("result", {}).get("co2_grams") for s in pareto_frontier
+                         if s.get("result", {}).get("co2_grams") is not None]
+            if co2_values:
+                best_co2 = min(co2_values)
+                avg_co2 = sum(co2_values) / len(co2_values)
+                co2_summary = f"\nCarbon Metrics:\n- Best CO2: {best_co2:.2f}g\n- Average CO2: {avg_co2:.2f}g"
+
         context = f"""
 Current State:
 - Model: {state['model_name']}
@@ -380,6 +403,7 @@ Current State:
 - Consecutive no-improvement: {state['consecutive_no_improvement']}
 
 {pareto_summary}
+{co2_summary}
 
 {recent_history}
 
@@ -399,6 +423,9 @@ What should be the next action? Choose one:
 4. "pipeline" with pipeline_name for multi-step compression
 5. "search" to explore new strategies
 6. "end" if converged or should stop
+
+Note: Consider CO2 emissions when choosing strategies. Lower bit quantization
+typically reduces energy consumption and carbon footprint.
 
 Respond in JSON format:
 For quantization: {{"action": "quantization", "method": "autoround|gptq|int8|awq", "bits": 4, "reasoning": "..."}}
@@ -800,6 +827,9 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         print(f"  Evaluating on {state['dataset']}...")
 
         # Run evaluation
+        eval_result = None
+        carbon_result = None
+
         try:
             eval_result = evaluate_model.invoke({
                 "checkpoint_path": compressed_path or state["model_name"],
@@ -807,7 +837,25 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
                 "use_proxy": True,
                 "proxy_samples": 200,
             })
+        except Exception as e:
+            print(f"  Benchmark evaluation failed: {e}")
 
+        # Measure carbon emissions (500 inferences for balance between speed and accuracy)
+        print(f"  Measuring carbon emissions (500 inferences)...")
+        try:
+            carbon_result = estimate_energy_consumption.invoke({
+                "checkpoint_path": compressed_path or state["model_name"],
+                "num_inferences": 500,
+                "device": "cuda" if torch.cuda.is_available() else "cpu",
+            })
+            print(f"  Carbon: {carbon_result.get('co2_grams', 0):.2f}g CO2, "
+                  f"{carbon_result.get('energy_per_inference_joules', 0):.4f}J/inference")
+        except Exception as e:
+            print(f"  Carbon measurement failed: {e}")
+            carbon_result = None
+
+        # Build EvaluationResult with carbon metrics
+        if eval_result:
             result = EvaluationResult(
                 strategy_id=strategy.get("strategy_id", "unknown"),
                 checkpoint_path=compressed_path or state["model_name"],
@@ -819,10 +867,16 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
                 memory_gb=eval_result.get("memory_gb", 1.0),
                 benchmark_scores=eval_result.get("benchmark_scores", {}),
                 evaluation_time_sec=eval_result.get("evaluation_time", 60.0),
+                # Carbon metrics
+                energy_joules=carbon_result.get("energy_per_inference_joules") if carbon_result else None,
+                energy_kwh=carbon_result.get("energy_kwh") if carbon_result else None,
+                co2_grams=carbon_result.get("co2_grams") if carbon_result else None,
+                co2_kg=carbon_result.get("co2_kg") if carbon_result else None,
+                num_inferences_measured=500 if carbon_result else None,
+                is_carbon_mock=carbon_result.get("is_mock", True) if carbon_result else True,
             )
-        except Exception as e:
-            print(f"  Evaluation failed: {e}")
-            # Create minimal result
+        else:
+            # Create minimal result with carbon if available
             result = EvaluationResult(
                 strategy_id=strategy.get("strategy_id", "unknown"),
                 checkpoint_path=compressed_path or state["model_name"],
@@ -834,9 +888,17 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
                 memory_gb=10.0,
                 benchmark_scores={},
                 evaluation_time_sec=0.0,
+                # Carbon metrics
+                energy_joules=carbon_result.get("energy_per_inference_joules") if carbon_result else None,
+                energy_kwh=carbon_result.get("energy_kwh") if carbon_result else None,
+                co2_grams=carbon_result.get("co2_grams") if carbon_result else None,
+                co2_kg=carbon_result.get("co2_kg") if carbon_result else None,
+                num_inferences_measured=500 if carbon_result else None,
+                is_carbon_mock=carbon_result.get("is_mock", True) if carbon_result else True,
             )
 
-        print(f"  Result: acc={result.accuracy:.3f}, latency={result.latency_ms:.1f}ms")
+        co2_str = f", CO2={result.co2_grams:.2f}g" if result.co2_grams else ""
+        print(f"  Result: acc={result.accuracy:.3f}, latency={result.latency_ms:.1f}ms{co2_str}")
 
         return {
             "current_result": result.model_dump(),
@@ -1082,11 +1144,12 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         """
         frontier_summary = self.pareto_frontier.get_summary()
 
-        # Get best solutions
+        # Get best solutions (including carbon)
         best_solutions = {
             "accuracy": None,
             "latency": None,
             "size": None,
+            "carbon": None,
             "balanced": None,
         }
 
@@ -1101,6 +1164,10 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         best_size = self.pareto_frontier.get_best_by_objective("size")
         if best_size:
             best_solutions["size"] = best_size.result.model_dump()
+
+        best_carbon = self.pareto_frontier.get_best_by_objective("carbon")
+        if best_carbon:
+            best_solutions["carbon"] = best_carbon.result.model_dump()
 
         balanced = self.pareto_frontier.get_balanced_solution()
         if balanced:

@@ -1,10 +1,26 @@
 #!/usr/bin/env python3
 """CLI interface for running the Agentic Compression Framework with LangGraph."""
 
+# Suppress third-party deprecation warnings before imports
+import warnings
+import os
+
+# Suppress all deprecation warnings from problematic third-party libraries
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, message=".*torch_dtype.*is deprecated.*")
+warnings.filterwarnings("ignore", category=UserWarning, message=".*device.*is deprecated.*")
+warnings.filterwarnings("ignore", category=UserWarning, message=".*Flash Attention.*non-deterministic.*")
+warnings.filterwarnings("ignore", category=UserWarning, message=".*shouldn't move a model.*")
+warnings.filterwarnings("ignore", message=".*unrecognized keys.*")
+warnings.filterwarnings("ignore", message=".*this API is deprecated.*")
+
+# Also suppress via environment variable for subprocesses
+os.environ["PYTHONWARNINGS"] = "ignore::DeprecationWarning,ignore::FutureWarning"
+
 import click
 import json
 import sys
-import os
 from pathlib import Path
 from datetime import datetime
 from typing import Optional

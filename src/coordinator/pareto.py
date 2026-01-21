@@ -74,6 +74,13 @@ class ParetoFrontier:
             elif solution_a.energy_joules > solution_b.energy_joules:
                 strictly_better = True
 
+        # Include CO2 emissions if available (5th optimization objective)
+        if solution_a.co2_grams is not None and solution_b.co2_grams is not None:
+            if solution_a.co2_grams < solution_b.co2_grams:
+                at_least_as_good = False
+            elif solution_a.co2_grams > solution_b.co2_grams:
+                strictly_better = True
+
         return at_least_as_good and strictly_better
 
     def add_solution(
@@ -168,6 +175,11 @@ class ParetoFrontier:
             with_energy = [s for s in self.solutions if s.result.energy_joules is not None]
             if with_energy:
                 return min(with_energy, key=lambda s: s.result.energy_joules)
+        elif objective == "carbon":
+            # Filter solutions with CO2 data
+            with_co2 = [s for s in self.solutions if s.result.co2_grams is not None]
+            if with_co2:
+                return min(with_co2, key=lambda s: s.result.co2_grams)
 
         return None
 
@@ -175,7 +187,7 @@ class ParetoFrontier:
         """Get a balanced solution using normalized scores.
 
         Returns:
-            A solution that balances all objectives
+            A solution that balances all objectives including CO2 emissions
         """
         if not self.solutions:
             return None
@@ -187,10 +199,15 @@ class ParetoFrontier:
         mem_values = [s.result.memory_gb for s in self.solutions]
         size_values = [s.result.model_size_gb for s in self.solutions]
 
+        # Collect CO2 values (may be None for some solutions)
+        co2_values = [s.result.co2_grams for s in self.solutions if s.result.co2_grams is not None]
+        has_co2_data = len(co2_values) > 0
+
         acc_range = (min(acc_values), max(acc_values))
         lat_range = (min(lat_values), max(lat_values))
         mem_range = (min(mem_values), max(mem_values))
         size_range = (min(size_values), max(size_values))
+        co2_range = (min(co2_values), max(co2_values)) if has_co2_data else (0, 1)
 
         best_solution = None
         best_score = float('-inf')
@@ -202,13 +219,24 @@ class ParetoFrontier:
             norm_mem = self._normalize(solution.result.memory_gb, mem_range, higher_better=False)
             norm_size = self._normalize(solution.result.model_size_gb, size_range, higher_better=False)
 
-            # Weighted score (can be adjusted)
-            score = (
-                0.4 * norm_acc +  # Accuracy is most important
-                0.2 * norm_lat +
-                0.2 * norm_mem +
-                0.2 * norm_size
-            )
+            # Weighted score (adjusted for 5D optimization with CO2)
+            if has_co2_data and solution.result.co2_grams is not None:
+                norm_co2 = self._normalize(solution.result.co2_grams, co2_range, higher_better=False)
+                score = (
+                    0.35 * norm_acc +   # Accuracy is most important
+                    0.20 * norm_lat +   # Latency
+                    0.15 * norm_mem +   # Memory
+                    0.15 * norm_size +  # Model size
+                    0.15 * norm_co2     # CO2 emissions
+                )
+            else:
+                # Fallback to 4D optimization if no CO2 data
+                score = (
+                    0.4 * norm_acc +
+                    0.2 * norm_lat +
+                    0.2 * norm_mem +
+                    0.2 * norm_size
+                )
 
             if score > best_score:
                 best_score = score
@@ -287,15 +315,20 @@ class ParetoFrontier:
                 "best_latency": None,
                 "best_memory": None,
                 "best_size": None,
+                "best_co2_grams": None,
             }
 
-        return {
+        # Collect CO2 values (may be None for some solutions)
+        co2_values = [s.result.co2_grams for s in self.solutions if s.result.co2_grams is not None]
+
+        summary = {
             "num_solutions": len(self.solutions),
             "num_evaluated": len(self.history),
             "best_accuracy": max(s.result.accuracy for s in self.solutions),
             "best_latency": min(s.result.latency_ms for s in self.solutions),
             "best_memory": min(s.result.memory_gb for s in self.solutions),
             "best_size": min(s.result.model_size_gb for s in self.solutions),
+            "best_co2_grams": min(co2_values) if co2_values else None,
             "accuracy_range": (
                 min(s.result.accuracy for s in self.solutions),
                 max(s.result.accuracy for s in self.solutions)
@@ -314,6 +347,12 @@ class ParetoFrontier:
             ),
         }
 
+        # Add CO2 range if data available
+        if co2_values:
+            summary["co2_range"] = (min(co2_values), max(co2_values))
+
+        return summary
+
     def visualize_frontier(self, save_path: Optional[str] = None) -> Optional[str]:
         """Create a visualization of the Pareto frontier.
 
@@ -330,16 +369,33 @@ class ParetoFrontier:
             import plotly.graph_objects as go
             from plotly.subplots import make_subplots
 
-            # Create subplots for different objective pairs
-            fig = make_subplots(
-                rows=2, cols=2,
-                subplot_titles=(
-                    "Accuracy vs Latency",
-                    "Accuracy vs Memory",
-                    "Accuracy vs Model Size",
-                    "Latency vs Memory"
+            # Check if CO2 data is available
+            co2_values = [s.result.co2_grams for s in self.solutions if s.result.co2_grams is not None]
+            has_co2_data = len(co2_values) > 0
+
+            # Create subplots for different objective pairs (3 rows if CO2 data available)
+            if has_co2_data:
+                fig = make_subplots(
+                    rows=3, cols=2,
+                    subplot_titles=(
+                        "Accuracy vs Latency",
+                        "Accuracy vs Memory",
+                        "Accuracy vs Model Size",
+                        "Accuracy vs CO2",
+                        "Latency vs Memory",
+                        "CO2 vs Model Size"
+                    )
                 )
-            )
+            else:
+                fig = make_subplots(
+                    rows=2, cols=2,
+                    subplot_titles=(
+                        "Accuracy vs Latency",
+                        "Accuracy vs Memory",
+                        "Accuracy vs Model Size",
+                        "Latency vs Memory"
+                    )
+                )
 
             # Extract data
             accuracies = [s.result.accuracy for s in self.solutions]
@@ -347,6 +403,7 @@ class ParetoFrontier:
             memories = [s.result.memory_gb for s in self.solutions]
             sizes = [s.result.model_size_gb for s in self.solutions]
             labels = [s.strategy.strategy_id for s in self.solutions]
+            co2_data = [s.result.co2_grams if s.result.co2_grams is not None else 0 for s in self.solutions]
 
             # Accuracy vs Latency
             fig.add_trace(
@@ -386,35 +443,95 @@ class ParetoFrontier:
                 row=2, col=1
             )
 
-            # Latency vs Memory
-            fig.add_trace(
-                go.Scatter(
-                    x=memories,
-                    y=latencies,
-                    mode='markers',
-                    marker=dict(size=10, color='purple'),
-                    showlegend=False
-                ),
-                row=2, col=2
-            )
+            if has_co2_data:
+                # Accuracy vs CO2
+                fig.add_trace(
+                    go.Scatter(
+                        x=co2_data,
+                        y=accuracies,
+                        mode='markers',
+                        marker=dict(size=10, color='orange'),
+                        name="CO2 Emissions",
+                        showlegend=False
+                    ),
+                    row=2, col=2
+                )
 
-            # Update axes labels
-            fig.update_xaxes(title_text="Latency (ms)", row=1, col=1)
-            fig.update_xaxes(title_text="Memory (GB)", row=1, col=2)
-            fig.update_xaxes(title_text="Model Size (GB)", row=2, col=1)
-            fig.update_xaxes(title_text="Memory (GB)", row=2, col=2)
+                # Latency vs Memory
+                fig.add_trace(
+                    go.Scatter(
+                        x=memories,
+                        y=latencies,
+                        mode='markers',
+                        marker=dict(size=10, color='purple'),
+                        showlegend=False
+                    ),
+                    row=3, col=1
+                )
 
-            fig.update_yaxes(title_text="Accuracy", row=1, col=1)
-            fig.update_yaxes(title_text="Accuracy", row=1, col=2)
-            fig.update_yaxes(title_text="Accuracy", row=2, col=1)
-            fig.update_yaxes(title_text="Latency (ms)", row=2, col=2)
+                # CO2 vs Model Size
+                fig.add_trace(
+                    go.Scatter(
+                        x=sizes,
+                        y=co2_data,
+                        mode='markers',
+                        marker=dict(size=10, color='teal'),
+                        showlegend=False
+                    ),
+                    row=3, col=2
+                )
 
-            # Update layout
-            fig.update_layout(
-                title_text="Pareto Frontier Visualization",
-                height=800,
-                showlegend=True
-            )
+                # Update axes labels for 3x2 layout
+                fig.update_xaxes(title_text="Latency (ms)", row=1, col=1)
+                fig.update_xaxes(title_text="Memory (GB)", row=1, col=2)
+                fig.update_xaxes(title_text="Model Size (GB)", row=2, col=1)
+                fig.update_xaxes(title_text="CO2 (grams)", row=2, col=2)
+                fig.update_xaxes(title_text="Memory (GB)", row=3, col=1)
+                fig.update_xaxes(title_text="Model Size (GB)", row=3, col=2)
+
+                fig.update_yaxes(title_text="Accuracy", row=1, col=1)
+                fig.update_yaxes(title_text="Accuracy", row=1, col=2)
+                fig.update_yaxes(title_text="Accuracy", row=2, col=1)
+                fig.update_yaxes(title_text="Accuracy", row=2, col=2)
+                fig.update_yaxes(title_text="Latency (ms)", row=3, col=1)
+                fig.update_yaxes(title_text="CO2 (grams)", row=3, col=2)
+
+                # Update layout for 3x2
+                fig.update_layout(
+                    title_text="Pareto Frontier Visualization (5D: Accuracy, Latency, Memory, Size, CO2)",
+                    height=1000,
+                    showlegend=True
+                )
+            else:
+                # Latency vs Memory (original 2x2 layout)
+                fig.add_trace(
+                    go.Scatter(
+                        x=memories,
+                        y=latencies,
+                        mode='markers',
+                        marker=dict(size=10, color='purple'),
+                        showlegend=False
+                    ),
+                    row=2, col=2
+                )
+
+                # Update axes labels for 2x2 layout
+                fig.update_xaxes(title_text="Latency (ms)", row=1, col=1)
+                fig.update_xaxes(title_text="Memory (GB)", row=1, col=2)
+                fig.update_xaxes(title_text="Model Size (GB)", row=2, col=1)
+                fig.update_xaxes(title_text="Memory (GB)", row=2, col=2)
+
+                fig.update_yaxes(title_text="Accuracy", row=1, col=1)
+                fig.update_yaxes(title_text="Accuracy", row=1, col=2)
+                fig.update_yaxes(title_text="Accuracy", row=2, col=1)
+                fig.update_yaxes(title_text="Latency (ms)", row=2, col=2)
+
+                # Update layout for 2x2
+                fig.update_layout(
+                    title_text="Pareto Frontier Visualization",
+                    height=800,
+                    showlegend=True
+                )
 
             # Save if path provided
             if save_path:
