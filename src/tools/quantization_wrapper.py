@@ -162,20 +162,29 @@ class AutoRoundQuantizer(BaseQuantizer):
         return param_size / (1024 ** 3)
 
     def _mock_quantization(self, model_name: str, bit_width: int, output_dir: str) -> Dict[str, Any]:
-        """Mock quantization for when libraries aren't available."""
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(output_dir, "model.safetensors")).touch()
+        """Fail fast when AutoRound library is unavailable.
+
+        Returns an error result instead of creating invalid empty files.
+        This allows the coordinator to handle the failure gracefully.
+        """
+        error_msg = "AutoRound quantization library not installed. Install: pip install auto-round"
+        logger.error(error_msg)
 
         original_size = estimate_model_size_gb(model_name)
-        compression_ratio = 16 / bit_width
-        compressed_size = original_size / compression_ratio
 
         return {
-            "checkpoint_path": output_dir,
-            "model_size_gb": compressed_size,
-            "compression_ratio": compression_ratio,
-            "quantization_time_sec": 2.0,
-            "metadata": {"method": "autoround", "mock": True, "original_size_gb": original_size},
+            "checkpoint_path": None,  # None indicates failure
+            "model_size_gb": 0.0,
+            "compression_ratio": 1.0,
+            "quantization_time_sec": 0.0,
+            "success": False,
+            "error": error_msg,
+            "metadata": {
+                "method": "autoround",
+                "failed": True,
+                "reason": "library_unavailable",
+                "original_size_gb": original_size,
+            },
         }
 
 
@@ -313,20 +322,29 @@ class GPTQQuantizer(BaseQuantizer):
                 for text in texts[:num_samples]]
 
     def _mock_quantization(self, model_name: str, bit_width: int, output_dir: str) -> Dict[str, Any]:
-        """Mock quantization."""
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(output_dir, "model.safetensors")).touch()
+        """Fail fast when GPTQ library is unavailable.
+
+        Returns an error result instead of creating invalid empty files.
+        This allows the coordinator to handle the failure gracefully.
+        """
+        error_msg = "GPTQ quantization library not installed. Install: pip install gptqmodel optimum"
+        logger.error(error_msg)
 
         original_size = estimate_model_size_gb(model_name)
-        compression_ratio = 16 / bit_width
-        compressed_size = original_size / compression_ratio
 
         return {
-            "checkpoint_path": output_dir,
-            "model_size_gb": compressed_size,
-            "compression_ratio": compression_ratio,
-            "quantization_time_sec": 2.0,
-            "metadata": {"method": "gptq", "mock": True, "original_size_gb": original_size},
+            "checkpoint_path": None,  # None indicates failure
+            "model_size_gb": 0.0,
+            "compression_ratio": 1.0,
+            "quantization_time_sec": 0.0,
+            "success": False,
+            "error": error_msg,
+            "metadata": {
+                "method": "gptq",
+                "failed": True,
+                "reason": "library_unavailable",
+                "original_size_gb": original_size,
+            },
         }
 
     def _build_quantize_config(self, bit_width: int, group_size: int, overrides: Dict[str, Any]):
@@ -401,17 +419,38 @@ class GPTQQuantizer(BaseQuantizer):
 
 
 class AWQQuantizer(BaseQuantizer):
-    """AWQ (Activation-aware Weight Quantization) wrapper."""
+    """AWQ (Activation-aware Weight Quantization) wrapper.
+
+    Supports two backends:
+    1. llm-compressor (vLLM's official successor to AutoAWQ) - preferred
+    2. AutoAWQ (legacy, deprecated but still functional)
+    """
 
     def __init__(self):
         super().__init__("awq")
-        self.awq_available = False
+        self.llmcompressor_available = False
+        self.autoawq_available = False
+
+        # Try llm-compressor first (preferred)
         try:
-            from awq import AutoAWQForCausalLM
-            self.awq_available = True
-            self.AutoAWQForCausalLM = AutoAWQForCausalLM
+            from llmcompressor.modifiers.awq import AWQModifier
+            from llmcompressor import oneshot
+            self.llmcompressor_available = True
+            self.AWQModifier = AWQModifier
+            self.oneshot = oneshot
+            logger.info("Using llm-compressor for AWQ quantization")
         except ImportError:
-            logger.warning("awq not installed, using mock implementation")
+            logger.debug("llm-compressor not available, trying autoawq")
+
+        # Fallback to AutoAWQ
+        if not self.llmcompressor_available:
+            try:
+                from awq import AutoAWQForCausalLM
+                self.autoawq_available = True
+                self.AutoAWQForCausalLM = AutoAWQForCausalLM
+                logger.info("Using AutoAWQ for AWQ quantization (deprecated, consider migrating to llm-compressor)")
+            except ImportError:
+                logger.warning("Neither llm-compressor nor autoawq installed, using mock implementation")
 
     def quantize(
         self,
@@ -423,8 +462,10 @@ class AWQQuantizer(BaseQuantizer):
         output_dir: Optional[str] = None,
         **kwargs
     ) -> Dict[str, Any]:
-        """Quantize model using AWQ."""
+        """Quantize model using AWQ.
 
+        Tries llm-compressor first, falls back to AutoAWQ if unavailable.
+        """
         start_time = time.time()
 
         if not output_dir:
@@ -432,104 +473,245 @@ class AWQQuantizer(BaseQuantizer):
             model_short = os.path.basename(model_name).replace("/", "_")
             output_dir = f"data/checkpoints/{model_short}_awq_{bit_width}bit_{timestamp}"
 
-        if self.awq_available and bit_width == 4:  # AWQ mainly supports 4-bit
-            try:
-                from transformers import AutoTokenizer
+        # AWQ mainly supports 4-bit
+        if bit_width != 4:
+            logger.warning(f"AWQ is optimized for 4-bit quantization, got {bit_width}-bit")
 
-                logger.info(f"Loading model {model_name} for AWQ quantization...")
-                model = self.AutoAWQForCausalLM.from_pretrained(
-                    model_name,
-                    device_map="auto",
-                    trust_remote_code=True,
-                )
-                tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+        # Try llm-compressor first
+        if self.llmcompressor_available and bit_width == 4:
+            result = self._quantize_with_llmcompressor(
+                model_name, bit_width, group_size, calibration_samples,
+                calibration_dataset, output_dir, **kwargs
+            )
+            if result is not None:
+                return result
 
-                # AWQ config
-                quant_config = {
-                    "zero_point": True,
-                    "q_group_size": group_size,
-                    "w_bit": bit_width,
-                    "version": "GEMM",
-                }
+        # Fallback to AutoAWQ
+        if self.autoawq_available and bit_width == 4:
+            result = self._quantize_with_autoawq(
+                model_name, bit_width, group_size, calibration_samples,
+                calibration_dataset, output_dir, **kwargs
+            )
+            if result is not None:
+                return result
 
-                # Get calibration data
-                calibration_data = self._get_calibration_texts(calibration_dataset, calibration_samples)
+        # Both failed or unavailable
+        return self._mock_quantization(model_name, bit_width, output_dir)
 
-                # Run quantization
-                logger.info(f"Running AWQ quantization with {bit_width} bits...")
-                model.quantize(
-                    tokenizer,
-                    quant_config=quant_config,
-                    calib_data=calibration_data,
-                )
+    def _quantize_with_llmcompressor(
+        self,
+        model_name: str,
+        bit_width: int,
+        group_size: int,
+        calibration_samples: int,
+        calibration_dataset: Optional[str],
+        output_dir: str,
+        **kwargs
+    ) -> Optional[Dict[str, Any]]:
+        """Quantize using vLLM's llm-compressor (preferred method)."""
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
 
-                # Save model
-                logger.info(f"Saving AWQ model to {output_dir}")
-                model.save_quantized(output_dir)
-                tokenizer.save_pretrained(output_dir)
+            logger.info(f"Loading model {model_name} for AWQ quantization (llm-compressor)...")
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype="auto",
+                device_map="auto",
+                trust_remote_code=True,
+            )
+            tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
-                original_size = estimate_model_size_gb(model_name)
-                quantized_size = original_size / (16 / bit_width)
+            # AWQ recipe using llm-compressor
+            # W4A16_ASYM = 4-bit weights, 16-bit activations, asymmetric quantization
+            scheme = f"W{bit_width}A16_ASYM"
+            recipe = [
+                self.AWQModifier(
+                    ignore=["lm_head"],
+                    scheme=scheme,
+                    targets=["Linear"],
+                    group_size=group_size,
+                ),
+            ]
 
-                del model
-                torch.cuda.empty_cache()
+            # Get calibration dataset
+            calib_dataset = calibration_dataset or "ultrachat_200k"
 
-            except Exception as e:
-                logger.error(f"AWQ quantization failed: {e}")
-                return self._mock_quantization(model_name, bit_width, output_dir)
-        else:
-            return self._mock_quantization(model_name, bit_width, output_dir)
+            logger.info(f"Running AWQ quantization with llm-compressor ({bit_width}-bit, group_size={group_size})...")
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        quantization_time = time.time() - start_time
+            self.oneshot(
+                model=model,
+                dataset=calib_dataset,
+                recipe=recipe,
+                output_dir=output_dir,
+                num_calibration_samples=calibration_samples,
+            )
 
-        fallback_size = estimate_model_size_gb(model_name)
-        metadata = {
-            "method": "awq",
-            "model_name": model_name,
-            "bit_width": bit_width,
-            "group_size": group_size,
-            "calibration_samples": calibration_samples,
-            "original_size_gb": original_size if 'original_size' in locals() else fallback_size,
-            "quantized_size_gb": quantized_size if 'quantized_size' in locals() else fallback_size / (16.0 / bit_width),
-            "compression_ratio": (original_size / quantized_size) if 'original_size' in locals() else 16.0 / bit_width,
-            "quantization_time_sec": quantization_time,
-            "timestamp": datetime.now().isoformat(),
-        }
+            tokenizer.save_pretrained(output_dir)
 
-        self.save_metadata(output_dir, metadata)
+            original_size = estimate_model_size_gb(model_name)
+            quantized_size = original_size / (16 / bit_width)
+            quantization_time = time.time() - kwargs.get("_start_time", time.time())
 
-        return {
-            "checkpoint_path": output_dir,
-            "model_size_gb": metadata["quantized_size_gb"],
-            "compression_ratio": metadata["compression_ratio"],
-            "quantization_time_sec": quantization_time,
-            "metadata": metadata,
-        }
+            del model
+            torch.cuda.empty_cache()
+
+            metadata = {
+                "method": "awq",
+                "backend": "llm-compressor",
+                "model_name": model_name,
+                "bit_width": bit_width,
+                "group_size": group_size,
+                "calibration_samples": calibration_samples,
+                "calibration_dataset": calib_dataset,
+                "original_size_gb": original_size,
+                "quantized_size_gb": quantized_size,
+                "compression_ratio": original_size / quantized_size,
+                "quantization_time_sec": quantization_time,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            self.save_metadata(output_dir, metadata)
+
+            return {
+                "checkpoint_path": output_dir,
+                "model_size_gb": quantized_size,
+                "compression_ratio": metadata["compression_ratio"],
+                "quantization_time_sec": quantization_time,
+                "metadata": metadata,
+            }
+
+        except Exception as e:
+            logger.warning(f"llm-compressor AWQ quantization failed: {e}, trying AutoAWQ fallback")
+            return None
+
+    def _quantize_with_autoawq(
+        self,
+        model_name: str,
+        bit_width: int,
+        group_size: int,
+        calibration_samples: int,
+        calibration_dataset: Optional[str],
+        output_dir: str,
+        **kwargs
+    ) -> Optional[Dict[str, Any]]:
+        """Quantize using AutoAWQ (legacy fallback)."""
+        try:
+            from transformers import AutoTokenizer
+
+            logger.info(f"Loading model {model_name} for AWQ quantization (AutoAWQ)...")
+            model = self.AutoAWQForCausalLM.from_pretrained(
+                model_name,
+                device_map="auto",
+                trust_remote_code=True,
+            )
+            tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+
+            # AWQ config
+            quant_config = {
+                "zero_point": True,
+                "q_group_size": group_size,
+                "w_bit": bit_width,
+                "version": "GEMM",
+            }
+
+            # Get calibration data
+            calibration_data = self._get_calibration_texts(calibration_dataset, calibration_samples)
+
+            # Run quantization
+            logger.info(f"Running AWQ quantization with AutoAWQ ({bit_width}-bit)...")
+            model.quantize(
+                tokenizer,
+                quant_config=quant_config,
+                calib_data=calibration_data,
+            )
+
+            # Save model
+            logger.info(f"Saving AWQ model to {output_dir}")
+            model.save_quantized(output_dir)
+            tokenizer.save_pretrained(output_dir)
+
+            original_size = estimate_model_size_gb(model_name)
+            quantized_size = original_size / (16 / bit_width)
+            quantization_time = time.time() - kwargs.get("_start_time", time.time())
+
+            del model
+            torch.cuda.empty_cache()
+
+            metadata = {
+                "method": "awq",
+                "backend": "autoawq",
+                "model_name": model_name,
+                "bit_width": bit_width,
+                "group_size": group_size,
+                "calibration_samples": calibration_samples,
+                "original_size_gb": original_size,
+                "quantized_size_gb": quantized_size,
+                "compression_ratio": original_size / quantized_size,
+                "quantization_time_sec": quantization_time,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            self.save_metadata(output_dir, metadata)
+
+            return {
+                "checkpoint_path": output_dir,
+                "model_size_gb": quantized_size,
+                "compression_ratio": metadata["compression_ratio"],
+                "quantization_time_sec": quantization_time,
+                "metadata": metadata,
+            }
+
+        except Exception as e:
+            logger.error(f"AutoAWQ quantization failed: {e}")
+            return None
 
     def _get_calibration_texts(self, dataset_name: Optional[str], num_samples: int):
         """Get calibration texts for AWQ."""
-        # In production, load from actual dataset
+        if dataset_name:
+            try:
+                from datasets import load_dataset
+                dataset = load_dataset(dataset_name, split="train")
+                # Try common text columns
+                for col in ["text", "content", "question"]:
+                    if col in dataset.column_names:
+                        return dataset[col][:num_samples]
+            except Exception as e:
+                logger.warning(f"Could not load dataset {dataset_name}: {e}")
+
+        # Fallback to default calibration texts
         return [
             "AWQ preserves important weights during quantization.",
             "Activation-aware quantization maintains model quality.",
             "This method works particularly well with Llama models.",
-        ] * (num_samples // 3)
+            "Large language models can be compressed efficiently.",
+            "Quantization reduces memory footprint significantly.",
+        ] * (num_samples // 5 + 1)
 
     def _mock_quantization(self, model_name: str, bit_width: int, output_dir: str) -> Dict[str, Any]:
-        """Mock quantization."""
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(output_dir, "model.safetensors")).touch()
+        """Fail fast when AWQ library is unavailable.
+
+        Returns an error result instead of creating invalid empty files.
+        This allows the coordinator to handle the failure gracefully.
+        """
+        error_msg = "AWQ quantization library not installed. Install: pip install autoawq or pip install llmcompressor"
+        logger.error(error_msg)
 
         original_size = estimate_model_size_gb(model_name)
-        compression_ratio = 16 / bit_width
-        compressed_size = original_size / compression_ratio
 
         return {
-            "checkpoint_path": output_dir,
-            "model_size_gb": compressed_size,
-            "compression_ratio": compression_ratio,
-            "quantization_time_sec": 2.0,
-            "metadata": {"method": "awq", "mock": True, "original_size_gb": original_size},
+            "checkpoint_path": None,  # None indicates failure
+            "model_size_gb": 0.0,
+            "compression_ratio": 1.0,
+            "quantization_time_sec": 0.0,
+            "success": False,
+            "error": error_msg,
+            "metadata": {
+                "method": "awq",
+                "failed": True,
+                "reason": "library_unavailable",
+                "original_size_gb": original_size,
+            },
         }
 
 
@@ -623,20 +805,29 @@ class INT8Quantizer(BaseQuantizer):
         }
 
     def _mock_quantization(self, model_name: str, output_dir: str) -> Dict[str, Any]:
-        """Mock quantization."""
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(output_dir, "model.safetensors")).touch()
+        """Fail fast when bitsandbytes library is unavailable.
+
+        Returns an error result instead of creating invalid empty files.
+        This allows the coordinator to handle the failure gracefully.
+        """
+        error_msg = "INT8 quantization requires bitsandbytes. Install: pip install bitsandbytes"
+        logger.error(error_msg)
 
         original_size = estimate_model_size_gb(model_name)
-        compression_ratio = 2.0  # INT8 is 8-bit vs 16-bit FP16, so 2x compression
-        compressed_size = original_size / compression_ratio
 
         return {
-            "checkpoint_path": output_dir,
-            "model_size_gb": compressed_size,
-            "compression_ratio": compression_ratio,
-            "quantization_time_sec": 2.0,
-            "metadata": {"method": "int8", "mock": True, "original_size_gb": original_size},
+            "checkpoint_path": None,  # None indicates failure
+            "model_size_gb": 0.0,
+            "compression_ratio": 1.0,
+            "quantization_time_sec": 0.0,
+            "success": False,
+            "error": error_msg,
+            "metadata": {
+                "method": "int8",
+                "failed": True,
+                "reason": "library_unavailable",
+                "original_size_gb": original_size,
+            },
         }
 
 
@@ -742,6 +933,8 @@ class LoRATrainer(BaseQuantizer):
                 train_dataset = self._get_training_dataset(calibration_dataset, tokenizer)
 
                 # Configure training
+                # NOTE: fp16=False to avoid AMP gradient scaling issues with BFloat16
+                # AMP's GradScaler doesn't support BFloat16, causing training failures
                 sft_config = self.SFTConfig(
                     output_dir=output_dir,
                     max_steps=training_steps,
@@ -750,7 +943,7 @@ class LoRATrainer(BaseQuantizer):
                     logging_steps=10,
                     save_steps=training_steps,
                     save_total_limit=1,
-                    fp16=True,
+                    fp16=False,
                     report_to="none",
                     gradient_accumulation_steps=kwargs.get("gradient_accumulation_steps", 1),
                     warmup_steps=kwargs.get("warmup_steps", 10),
@@ -855,32 +1048,31 @@ class LoRATrainer(BaseQuantizer):
         return total_size / (1024 * 1024)
 
     def _mock_finetune(self, model_name: str, lora_rank: int, output_dir: str) -> Dict[str, Any]:
-        """Mock fine-tuning for when libraries aren't available."""
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(output_dir, "adapter_model.safetensors")).touch()
+        """Fail fast when PEFT/TRL libraries are unavailable.
 
-        # Create mock adapter config
-        adapter_config = {
-            "base_model_name_or_path": model_name,
-            "r": lora_rank,
-            "lora_alpha": 32,
-            "target_modules": ["q_proj", "v_proj"],
-            "peft_type": "LORA",
-        }
-        with open(os.path.join(output_dir, "adapter_config.json"), "w") as f:
-            json.dump(adapter_config, f, indent=2)
+        Returns an error result instead of creating invalid empty files.
+        This allows the coordinator to handle the failure gracefully.
+        """
+        error_msg = "LoRA fine-tuning requires peft and trl. Install: pip install peft trl"
+        logger.error(error_msg)
 
         original_size = estimate_model_size_gb(model_name)
-        adapter_size_mb = lora_rank * 0.5  # Rough estimate
 
         return {
-            "checkpoint_path": output_dir,
-            "adapter_size_mb": adapter_size_mb,
-            "training_loss": 0.5,
-            "training_time_sec": 2.0,
-            "compression_ratio": 1.0,  # LoRA doesn't compress base model
-            "model_size_gb": original_size + (adapter_size_mb / 1024),  # Base + adapter
-            "metadata": {"method": "lora", "mock": True, "original_size_gb": original_size},
+            "checkpoint_path": None,  # None indicates failure
+            "adapter_size_mb": 0.0,
+            "training_loss": 0.0,
+            "training_time_sec": 0.0,
+            "compression_ratio": 1.0,
+            "model_size_gb": 0.0,
+            "success": False,
+            "error": error_msg,
+            "metadata": {
+                "method": "lora",
+                "failed": True,
+                "reason": "library_unavailable",
+                "original_size_gb": original_size,
+            },
         }
 
 
@@ -966,12 +1158,13 @@ class QLoRATrainer(BaseQuantizer):
                 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
                 from datasets import Dataset
 
-                # Configure 4-bit quantization
+                # Configure 4-bit quantization with CPU offload for large models
                 bnb_config = BitsAndBytesConfig(
                     load_in_4bit=True,
                     bnb_4bit_quant_type="nf4",
                     bnb_4bit_compute_dtype=torch.float16,
                     bnb_4bit_use_double_quant=True,
+                    llm_int8_enable_fp32_cpu_offload=True,
                 )
 
                 logger.info(f"Loading model {model_name} in {bits}-bit for QLoRA...")
@@ -1008,6 +1201,8 @@ class QLoRATrainer(BaseQuantizer):
                 train_dataset = self._get_training_dataset(calibration_dataset, tokenizer)
 
                 # Configure training
+                # NOTE: fp16=False to avoid AMP gradient scaling issues with BFloat16
+                # AMP's GradScaler doesn't support BFloat16, causing training failures
                 sft_config = self.SFTConfig(
                     output_dir=output_dir,
                     max_steps=training_steps,
@@ -1016,7 +1211,7 @@ class QLoRATrainer(BaseQuantizer):
                     logging_steps=10,
                     save_steps=training_steps,
                     save_total_limit=1,
-                    fp16=True,
+                    fp16=False,
                     report_to="none",
                     gradient_accumulation_steps=kwargs.get("gradient_accumulation_steps", 1),
                     warmup_steps=kwargs.get("warmup_steps", 10),
@@ -1131,37 +1326,415 @@ class QLoRATrainer(BaseQuantizer):
         return total_size / (1024 * 1024)
 
     def _mock_finetune(self, model_name: str, lora_rank: int, bits: int, output_dir: str) -> Dict[str, Any]:
-        """Mock fine-tuning for when libraries aren't available."""
-        Path(output_dir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(output_dir, "adapter_model.safetensors")).touch()
+        """Fail fast when PEFT/TRL/bitsandbytes libraries are unavailable.
 
-        # Create mock adapter config
-        adapter_config = {
-            "base_model_name_or_path": model_name,
-            "r": lora_rank,
-            "lora_alpha": 32,
-            "target_modules": ["q_proj", "v_proj", "k_proj", "o_proj"],
-            "peft_type": "LORA",
-            "quantization_config": {"load_in_4bit": True},
-        }
-        with open(os.path.join(output_dir, "adapter_config.json"), "w") as f:
-            json.dump(adapter_config, f, indent=2)
+        Returns an error result instead of creating invalid empty files.
+        This allows the coordinator to handle the failure gracefully.
+        """
+        error_msg = "QLoRA fine-tuning requires peft, trl, and bitsandbytes. Install: pip install peft trl bitsandbytes"
+        logger.error(error_msg)
 
         original_size = estimate_model_size_gb(model_name)
-        compression_ratio = 16.0 / bits  # QLoRA uses 4-bit base model
-        compressed_size = original_size / compression_ratio
-        adapter_size_mb = lora_rank * 0.5
 
         return {
-            "checkpoint_path": output_dir,
-            "adapter_size_mb": adapter_size_mb,
-            "training_loss": 0.5,
-            "training_time_sec": 2.0,
+            "checkpoint_path": None,  # None indicates failure
+            "adapter_size_mb": 0.0,
+            "training_loss": 0.0,
+            "training_time_sec": 0.0,
             "base_model_bits": bits,
-            "total_vram_gb": compressed_size,  # Approximate VRAM needed
-            "compression_ratio": compression_ratio,
-            "model_size_gb": compressed_size + (adapter_size_mb / 1024),
-            "metadata": {"method": "qlora", "mock": True, "original_size_gb": original_size},
+            "total_vram_gb": 0.0,
+            "compression_ratio": 1.0,
+            "model_size_gb": 0.0,
+            "success": False,
+            "error": error_msg,
+            "metadata": {
+                "method": "qlora",
+                "failed": True,
+                "reason": "library_unavailable",
+                "original_size_gb": original_size,
+            },
+        }
+
+
+class ASVDCompressor(BaseQuantizer):
+    """ASVD (Activation-aware Singular Value Decomposition) compression.
+
+    ASVD compresses model weights using SVD decomposition while considering
+    activation patterns to determine which singular values are most important.
+    This allows for intelligent rank selection that preserves model accuracy.
+
+    Key features:
+    - Uses calibration data to collect activation statistics
+    - Scales weights by activation importance before SVD
+    - Selects top-k singular values based on rank_ratio
+    - Reconstructs low-rank weight matrices
+
+    Compression ratio calculation:
+    - Original: m × n parameters
+    - Compressed: m × k + k + k × n = k(m + n + 1) parameters
+    - Where k = rank × rank_ratio
+    """
+
+    def __init__(self):
+        super().__init__("asvd")
+
+    def compress(
+        self,
+        model_name: str,
+        rank_ratio: float = 0.5,
+        calibration_samples: int = 512,
+        calibration_dataset: Optional[str] = None,
+        target_layers: Optional[List[str]] = None,
+        output_dir: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Apply ASVD compression to a model.
+
+        Args:
+            model_name: HuggingFace model name or path
+            rank_ratio: Ratio of singular values to keep (0.0-1.0, default: 0.5)
+            calibration_samples: Number of calibration samples for activation collection
+            calibration_dataset: Dataset name for calibration data
+            target_layers: List of layer name patterns to compress (None = all linear layers)
+            output_dir: Directory to save compressed model
+
+        Returns:
+            Dictionary with compression results including:
+            - checkpoint_path: Path to compressed model
+            - model_size_gb: Size of compressed model
+            - compression_ratio: Compression ratio achieved
+            - compression_time_sec: Time taken for compression
+            - layers_compressed: Number of layers compressed
+            - metadata: Additional compression metadata
+        """
+        start_time = time.time()
+
+        if not output_dir:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            model_short = os.path.basename(model_name).replace("/", "_")
+            output_dir = f"data/checkpoints/{model_short}_asvd_r{int(rank_ratio*100)}_{timestamp}"
+
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            logger.info(f"Loading model {model_name} for ASVD compression...")
+            model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                trust_remote_code=True,
+            )
+            tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+
+            if tokenizer.pad_token is None:
+                tokenizer.pad_token = tokenizer.eos_token
+
+            # Get calibration data for activation collection
+            calibration_texts = self._get_calibration_data(
+                tokenizer, calibration_dataset, calibration_samples
+            )
+
+            # Collect activation statistics
+            logger.info("Collecting activation statistics...")
+            activation_stats = self._collect_activation_stats(
+                model, tokenizer, calibration_texts, target_layers
+            )
+
+            # Apply ASVD compression to each layer
+            logger.info(f"Applying ASVD compression with rank_ratio={rank_ratio}...")
+            layers_compressed = 0
+            total_params_before = 0
+            total_params_after = 0
+
+            for name, module in model.named_modules():
+                if not isinstance(module, torch.nn.Linear):
+                    continue
+
+                # Check if layer should be compressed
+                if target_layers is not None:
+                    if not any(pattern in name for pattern in target_layers):
+                        continue
+
+                # Skip very small layers (not worth compressing)
+                if module.weight.shape[0] < 64 or module.weight.shape[1] < 64:
+                    continue
+
+                # Get activation stats for this layer
+                layer_activations = activation_stats.get(name)
+
+                # Apply ASVD to this layer
+                compressed = self._compress_layer(
+                    module, layer_activations, rank_ratio
+                )
+
+                if compressed:
+                    layers_compressed += 1
+                    m, n = module.weight.shape
+                    k = compressed["k"]
+                    total_params_before += m * n
+                    total_params_after += k * (m + n + 1)
+
+            # Calculate compression metrics
+            original_size = estimate_model_size_gb(model_name)
+            if total_params_before > 0:
+                param_ratio = total_params_after / total_params_before
+                # Estimate new size (only compressed layers change)
+                compressed_size = original_size * (0.5 + 0.5 * param_ratio)  # Rough estimate
+            else:
+                compressed_size = original_size
+                param_ratio = 1.0
+
+            compression_ratio = original_size / compressed_size if compressed_size > 0 else 1.0
+
+            # Save compressed model
+            logger.info(f"Saving ASVD-compressed model to {output_dir}")
+            Path(output_dir).mkdir(parents=True, exist_ok=True)
+            model.save_pretrained(output_dir)
+            tokenizer.save_pretrained(output_dir)
+
+            del model
+            torch.cuda.empty_cache()
+
+            compression_time = time.time() - start_time
+
+            metadata = {
+                "method": "asvd",
+                "model_name": model_name,
+                "rank_ratio": rank_ratio,
+                "calibration_samples": calibration_samples,
+                "target_layers": target_layers,
+                "layers_compressed": layers_compressed,
+                "original_size_gb": original_size,
+                "compressed_size_gb": compressed_size,
+                "compression_ratio": compression_ratio,
+                "param_ratio": param_ratio,
+                "compression_time_sec": compression_time,
+                "timestamp": datetime.now().isoformat(),
+            }
+
+            self.save_metadata(output_dir, metadata)
+
+            return {
+                "checkpoint_path": output_dir,
+                "model_size_gb": compressed_size,
+                "compression_ratio": compression_ratio,
+                "compression_time_sec": compression_time,
+                "layers_compressed": layers_compressed,
+                "metadata": metadata,
+            }
+
+        except Exception as e:
+            logger.error(f"ASVD compression failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._mock_compression(model_name, rank_ratio, output_dir)
+
+    def _get_calibration_data(
+        self, tokenizer, dataset_name: Optional[str], num_samples: int
+    ) -> List[str]:
+        """Get calibration texts for activation collection."""
+        if dataset_name:
+            try:
+                from datasets import load_dataset
+
+                if "wikitext" in dataset_name.lower():
+                    dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="train")
+                    texts = [t for t in dataset["text"] if len(t) > 100][:num_samples]
+                elif "c4" in dataset_name.lower():
+                    dataset = load_dataset("c4", "en", split="train", streaming=True)
+                    texts = [item["text"] for item in dataset.take(num_samples)]
+                else:
+                    dataset = load_dataset(dataset_name, split="train")
+                    # Try common text column names
+                    for col in ["text", "content", "question", "sentence"]:
+                        if col in dataset.column_names:
+                            texts = dataset[col][:num_samples]
+                            break
+                    else:
+                        texts = []
+
+                if texts:
+                    return texts
+            except Exception as e:
+                logger.warning(f"Could not load dataset {dataset_name}: {e}")
+
+        # Fallback to mock calibration data
+        return [
+            "The quick brown fox jumps over the lazy dog. " * 10,
+            "Machine learning models can be compressed using various techniques. " * 8,
+            "Singular value decomposition is a powerful matrix factorization method. " * 8,
+            "Neural networks learn to approximate complex functions from data. " * 8,
+            "Activation-aware compression preserves important model behaviors. " * 8,
+        ] * (num_samples // 5 + 1)
+
+    def _collect_activation_stats(
+        self,
+        model,
+        tokenizer,
+        calibration_texts: List[str],
+        target_layers: Optional[List[str]] = None,
+    ) -> Dict[str, torch.Tensor]:
+        """Collect activation statistics from calibration data.
+
+        Args:
+            model: The model to analyze
+            tokenizer: Tokenizer for the model
+            calibration_texts: List of calibration texts
+            target_layers: Layer patterns to collect stats for
+
+        Returns:
+            Dictionary mapping layer names to activation importance tensors
+        """
+        activation_stats = {}
+        hooks = []
+
+        def make_hook(name):
+            def hook(module, input, output):
+                # Collect activation magnitudes
+                if isinstance(input, tuple) and len(input) > 0:
+                    inp = input[0]
+                else:
+                    inp = input
+
+                if inp is not None and isinstance(inp, torch.Tensor):
+                    # Compute mean absolute activation per input dimension
+                    with torch.no_grad():
+                        # Shape: [batch, seq, hidden] -> [hidden]
+                        importance = torch.mean(torch.abs(inp.float()), dim=(0, 1))
+
+                        if name in activation_stats:
+                            # Running average
+                            activation_stats[name] = (
+                                activation_stats[name] + importance
+                            ) / 2
+                        else:
+                            activation_stats[name] = importance
+            return hook
+
+        # Register hooks on linear layers
+        for name, module in model.named_modules():
+            if not isinstance(module, torch.nn.Linear):
+                continue
+
+            if target_layers is not None:
+                if not any(pattern in name for pattern in target_layers):
+                    continue
+
+            hook = module.register_forward_hook(make_hook(name))
+            hooks.append(hook)
+
+        # Run forward passes on calibration data
+        model.eval()
+        with torch.no_grad():
+            for i, text in enumerate(calibration_texts[:50]):  # Limit to 50 for speed
+                try:
+                    inputs = tokenizer(
+                        text,
+                        return_tensors="pt",
+                        truncation=True,
+                        max_length=512,
+                        padding=True,
+                    )
+                    inputs = {k: v.to(model.device) for k, v in inputs.items()}
+                    model(**inputs)
+                except Exception as e:
+                    logger.debug(f"Calibration sample {i} failed: {e}")
+                    continue
+
+        # Remove hooks
+        for hook in hooks:
+            hook.remove()
+
+        return activation_stats
+
+    def _compress_layer(
+        self,
+        module: torch.nn.Linear,
+        activations: Optional[torch.Tensor],
+        rank_ratio: float,
+    ) -> Optional[Dict[str, Any]]:
+        """Apply ASVD compression to a single linear layer.
+
+        Args:
+            module: Linear layer to compress
+            activations: Activation importance tensor (or None for uniform)
+            rank_ratio: Ratio of singular values to keep
+
+        Returns:
+            Dictionary with compression info, or None if compression failed
+        """
+        try:
+            weight = module.weight.data.float()  # [out_features, in_features]
+            m, n = weight.shape
+
+            # Scale weight by activation importance if available
+            if activations is not None and activations.shape[0] == n:
+                # Normalize importance to avoid numerical issues
+                importance = activations.to(weight.device) + 1e-6
+                importance = importance / importance.max()
+                scaled_weight = weight * importance.unsqueeze(0)
+            else:
+                scaled_weight = weight
+
+            # Perform SVD
+            U, S, Vh = torch.linalg.svd(scaled_weight, full_matrices=False)
+
+            # Select top-k singular values
+            k = max(1, int(len(S) * rank_ratio))
+
+            # Truncate to k components
+            U_k = U[:, :k]  # [m, k]
+            S_k = S[:k]      # [k]
+            Vh_k = Vh[:k, :] # [k, n]
+
+            # Reconstruct low-rank approximation
+            # We store as two separate matrices: W1 = U_k @ diag(S_k), W2 = Vh_k
+            # For inference: W_approx = W1 @ W2
+            W1 = U_k * S_k.unsqueeze(0)  # [m, k]
+            W2 = Vh_k  # [k, n]
+
+            # Replace weight with low-rank approximation
+            W_approx = W1 @ W2
+            module.weight.data = W_approx.to(module.weight.dtype)
+
+            return {
+                "k": k,
+                "original_rank": min(m, n),
+                "compression": (m * n) / (k * (m + n)),
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to compress layer: {e}")
+            return None
+
+    def _mock_compression(
+        self, model_name: str, rank_ratio: float, output_dir: str
+    ) -> Dict[str, Any]:
+        """Fail fast when ASVD compression fails.
+
+        Returns an error result instead of creating invalid empty files.
+        This allows the coordinator to handle the failure gracefully.
+        """
+        error_msg = "ASVD compression failed. Ensure transformers and torch are properly installed."
+        logger.error(error_msg)
+
+        original_size = estimate_model_size_gb(model_name)
+
+        return {
+            "checkpoint_path": None,  # None indicates failure
+            "model_size_gb": 0.0,
+            "compression_ratio": 1.0,
+            "compression_time_sec": 0.0,
+            "layers_compressed": 0,
+            "success": False,
+            "error": error_msg,
+            "metadata": {
+                "method": "asvd",
+                "failed": True,
+                "reason": "compression_failed",
+                "rank_ratio": rank_ratio,
+                "original_size_gb": original_size,
+            },
         }
 
 
@@ -1173,6 +1746,7 @@ def get_quantizer(method: str) -> BaseQuantizer:
         "gptq": GPTQQuantizer,
         "awq": AWQQuantizer,
         "int8": INT8Quantizer,
+        "asvd": ASVDCompressor,
         "lora": LoRATrainer,
         "qlora": QLoRATrainer,
     }

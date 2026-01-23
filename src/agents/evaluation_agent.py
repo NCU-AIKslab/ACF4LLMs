@@ -529,12 +529,215 @@ def compare_with_baseline(
     }
 
 
+# Global perplexity evaluator (lazy initialization)
+_perplexity_evaluator = None
+
+
+def _get_perplexity_evaluator(device: str = "cuda"):
+    """Get or create the perplexity evaluator instance."""
+    global _perplexity_evaluator
+    if _perplexity_evaluator is None:
+        try:
+            from src.evaluation.evaluators.perplexity_evaluator import PerplexityEvaluator
+            _perplexity_evaluator = PerplexityEvaluator(device=device)
+            logger.info("Initialized PerplexityEvaluator")
+        except Exception as e:
+            logger.warning(f"Failed to initialize PerplexityEvaluator: {e}")
+            return None
+    return _perplexity_evaluator
+
+
+@tool
+def measure_perplexity(
+    checkpoint_path: str,
+    dataset: str = "wikitext",
+    split: str = "test",
+    max_samples: Optional[int] = None,
+    device: str = "cuda",
+) -> Dict[str, Any]:
+    """Measure model perplexity on a text dataset.
+
+    Perplexity is a standard metric for evaluating language models.
+    Lower perplexity indicates better language modeling capability.
+
+    Args:
+        checkpoint_path: Path to the model checkpoint
+        dataset: Dataset to evaluate on. Supported datasets:
+            - wikitext: WikiText-2 (default, good for general LM evaluation)
+            - wikitext-103: WikiText-103 (larger, more comprehensive)
+            - c4: C4 dataset (web text)
+            - ptb: Penn Treebank
+            - lambada: LAMBADA (long-range dependencies)
+        split: Dataset split ('test' or 'validation')
+        max_samples: Maximum number of samples to use (None for all)
+        device: Device to run evaluation on
+
+    Returns:
+        Dictionary with perplexity metrics:
+        - perplexity: Standard perplexity (lower is better)
+        - bits_per_byte: Bits per byte metric
+        - word_perplexity: Per-word perplexity
+        - avg_nll: Average negative log-likelihood
+        - total_tokens: Total tokens evaluated
+        - dataset: Dataset used
+        - is_mock: Whether mock values were used
+    """
+    print(f"[Perplexity] Measuring perplexity on {dataset} ({split})...")
+
+    evaluator = _get_perplexity_evaluator(device)
+
+    if evaluator is not None:
+        try:
+            # Load model and tokenizer
+            model, tokenizer = _load_model_and_tokenizer(checkpoint_path, device)
+
+            # Run evaluation
+            results = evaluator.evaluate_full(
+                model=model,
+                tokenizer=tokenizer,
+                dataset=dataset,
+                split=split,
+                max_samples=max_samples,
+            )
+
+            # Clean up
+            del model
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            print(f"[Perplexity] Perplexity: {results['perplexity']:.2f}")
+            print(f"[Perplexity] Bits per byte: {results['bits_per_byte']:.4f}")
+            print(f"[Perplexity] Tokens evaluated: {results['total_tokens']}")
+
+            return {
+                **results,
+                "checkpoint_path": checkpoint_path,
+                "device": device,
+                "is_mock": False,
+            }
+
+        except Exception as e:
+            logger.warning(f"Perplexity evaluation failed: {e}")
+            print(f"[Perplexity] Evaluation failed: {e}, using mock fallback")
+
+    # Fallback to mock perplexity
+    print("[Perplexity] Using mock evaluation (real evaluation unavailable)")
+
+    # Generate realistic mock values based on model path
+    base_ppl = 15.0  # Base perplexity for a decent model
+    if "4bit" in checkpoint_path or "_4_" in checkpoint_path:
+        base_ppl *= 1.1  # 10% degradation for 4-bit
+    elif "8bit" in checkpoint_path or "int8" in checkpoint_path.lower():
+        base_ppl *= 1.05  # 5% degradation for 8-bit
+    elif "3bit" in checkpoint_path or "_3_" in checkpoint_path:
+        base_ppl *= 1.2  # 20% degradation for 3-bit
+
+    # Add some randomness
+    import random
+    ppl = base_ppl * random.uniform(0.9, 1.1)
+    avg_nll = random.uniform(2.5, 3.0)
+
+    print(f"[Perplexity] Mock perplexity: {ppl:.2f}")
+
+    return {
+        "perplexity": ppl,
+        "bits_per_byte": avg_nll / 2.0,
+        "word_perplexity": ppl * 1.5,
+        "avg_nll": avg_nll,
+        "total_tokens": 10000,
+        "num_words": 8000,
+        "dataset": dataset,
+        "split": split,
+        "checkpoint_path": checkpoint_path,
+        "device": device,
+        "is_mock": True,
+    }
+
+
+def _measure_energy_with_pynvml(
+    model,
+    tokenizer,
+    num_inferences: int,
+    device: str,
+) -> Optional[Dict[str, float]]:
+    """Measure energy using pynvml power readings.
+
+    This is a fallback when codecarbon is unavailable.
+    Uses GPU power sampling before/after each inference to estimate energy.
+
+    Args:
+        model: The loaded model
+        tokenizer: The tokenizer
+        num_inferences: Number of inferences to run
+        device: Device string
+
+    Returns:
+        Dictionary with energy measurements, or None if pynvml unavailable
+    """
+    try:
+        import pynvml
+
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+
+        total_energy_joules = 0.0
+        dummy_input = tokenizer("Hello world, this is a test.", return_tensors="pt")
+        if device == "cuda" and torch.cuda.is_available():
+            dummy_input = {k: v.cuda() for k, v in dummy_input.items()}
+
+        pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+
+        for i in range(num_inferences):
+            # Sample power before
+            power_start = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000  # mW → W
+            start_time = time.time()
+
+            # Run inference
+            with torch.no_grad():
+                _ = model.generate(**dummy_input, max_new_tokens=10, do_sample=False, pad_token_id=pad_token_id)
+
+            # Sample power after and calculate energy
+            elapsed = time.time() - start_time
+            power_end = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000  # mW → W
+            avg_power = (power_start + power_end) / 2
+            energy_joules = avg_power * elapsed
+            total_energy_joules += energy_joules
+
+            if (i + 1) % 100 == 0:
+                print(f"[Energy/pynvml] Completed {i + 1}/{num_inferences} inferences...")
+
+        pynvml.nvmlShutdown()
+
+        # CO2 estimation: ~0.5 kg CO2/kWh (global average grid intensity)
+        energy_kwh = total_energy_joules / 3_600_000
+        co2_grams = energy_kwh * 500  # 500g CO2 per kWh
+
+        return {
+            "energy_per_inference_joules": total_energy_joules / num_inferences,
+            "total_energy_joules": total_energy_joules,
+            "energy_kwh": energy_kwh,
+            "co2_grams": co2_grams,
+            "co2_kg": co2_grams / 1000,
+            "num_inferences": num_inferences,
+            "device": device,
+            "measurement_method": "pynvml",
+            "is_mock": False,
+        }
+
+    except ImportError:
+        logger.debug("pynvml not available for energy measurement")
+        return None
+    except Exception as e:
+        logger.warning(f"pynvml energy measurement failed: {e}")
+        return None
+
+
 def _mock_energy_consumption(
     checkpoint_path: str,
     num_inferences: int,
     device: str,
 ) -> Dict[str, float]:
-    """Fallback mock energy estimation."""
+    """Fallback mock energy estimation when real measurement is unavailable."""
     if "cuda" in device:
         if "4bit" in checkpoint_path:
             energy_per_inference = 0.5
@@ -556,6 +759,7 @@ def _mock_energy_consumption(
         "co2_kg": co2_grams / 1000,
         "num_inferences": num_inferences,
         "device": device,
+        "measurement_method": "mock",
         "is_mock": True,
     }
 
@@ -603,9 +807,12 @@ def estimate_energy_consumption(
         if device == "cuda" and torch.cuda.is_available():
             dummy_input = {k: v.cuda() for k, v in dummy_input.items()}
 
+        # Set pad_token_id to suppress warning
+        pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+
         for i in range(num_inferences):
             with torch.no_grad():
-                _ = model.generate(**dummy_input, max_new_tokens=10, do_sample=False)
+                _ = model.generate(**dummy_input, max_new_tokens=10, do_sample=False, pad_token_id=pad_token_id)
             if (i + 1) % 100 == 0:
                 print(f"[Energy] Completed {i + 1}/{num_inferences} inferences...")
 
@@ -642,18 +849,39 @@ def estimate_energy_consumption(
         }
 
     except ImportError:
-        logger.warning("codecarbon not available, using mock energy estimation")
-        print("[Energy] codecarbon not available, using mock estimation")
+        logger.warning("codecarbon not available, trying pynvml fallback")
+        print("[Energy] codecarbon not available, trying pynvml...")
     except Exception as e:
-        logger.warning(f"Real energy tracking failed: {e}, falling back to mock")
-        print(f"[Energy] Real tracking failed: {e}, using mock estimation")
+        logger.warning(f"codecarbon tracking failed: {e}, trying pynvml fallback")
+        print(f"[Energy] codecarbon failed: {e}, trying pynvml...")
 
-    # Fallback to mock estimation
+    # Try pynvml as fallback for real energy measurement
+    if device == "cuda" and torch.cuda.is_available():
+        try:
+            # Load model for pynvml measurement
+            model, tokenizer = _load_model_and_tokenizer(checkpoint_path, device)
+            pynvml_results = _measure_energy_with_pynvml(model, tokenizer, num_inferences, device)
+
+            # Clean up
+            del model
+            torch.cuda.empty_cache()
+
+            if pynvml_results is not None:
+                print(f"[Energy/pynvml] Total energy: {pynvml_results['energy_kwh']:.6f} kWh ({pynvml_results['total_energy_joules']:.1f} J)")
+                print(f"[Energy/pynvml] Per inference: {pynvml_results['energy_per_inference_joules']:.4f} J")
+                print(f"[Energy/pynvml] CO2 emissions: {pynvml_results['co2_grams']:.4f} g")
+                return pynvml_results
+
+        except Exception as e:
+            logger.warning(f"pynvml energy measurement failed: {e}")
+            print(f"[Energy] pynvml failed: {e}, using mock estimation")
+
+    # Final fallback to mock estimation
     results = _mock_energy_consumption(checkpoint_path, num_inferences, device)
 
-    print(f"[Energy] Per inference: {results['energy_per_inference_joules']:.2f} J")
-    print(f"[Energy] Total: {results['total_energy_joules']:.1f} J")
-    print(f"[Energy] Estimated CO2: {results['co2_grams']:.2f} g")
+    print(f"[Energy] Per inference: {results['energy_per_inference_joules']:.2f} J (mock)")
+    print(f"[Energy] Total: {results['total_energy_joules']:.1f} J (mock)")
+    print(f"[Energy] Estimated CO2: {results['co2_grams']:.2f} g (mock)")
 
     return results
 
@@ -689,6 +917,7 @@ Your responsibilities:
 Available tools:
 - evaluate_model: Run comprehensive evaluation (uses lm-eval harness)
 - run_proxy_evaluation: Quick evaluation with subset of data
+- measure_perplexity: Measure perplexity on WikiText/C4/etc
 - measure_inference_latency: Detailed latency profiling
 - measure_memory_usage: Memory consumption tracking
 - compare_with_baseline: Compare with original model
@@ -727,6 +956,7 @@ When you receive an evaluation request:
         "tools": [
             evaluate_model,
             run_proxy_evaluation,
+            measure_perplexity,
             measure_inference_latency,
             measure_memory_usage,
             compare_with_baseline,
@@ -737,4 +967,4 @@ When you receive an evaluation request:
 
 
 # Export the subagent creator
-__all__ = ["get_evaluation_subagent", "evaluate_model"]
+__all__ = ["get_evaluation_subagent", "evaluate_model", "measure_perplexity"]

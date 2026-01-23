@@ -371,6 +371,63 @@ def apply_qlora_finetuning(
 
 
 @tool
+def apply_asvd_compression(
+    model_path: str,
+    rank_ratio: float = 0.5,
+    calibration_samples: int = 512,
+    calibration_dataset: Optional[str] = None,
+    target_layers: Optional[List[str]] = None,
+    output_dir: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Apply ASVD (Activation-aware SVD) compression to a model.
+
+    ASVD uses Singular Value Decomposition to create low-rank approximations
+    of weight matrices, with activation awareness to preserve important weights.
+    This provides good compression with controllable accuracy trade-offs.
+
+    Args:
+        model_path: Path to the model checkpoint or HuggingFace model name
+        rank_ratio: Ratio of singular values to keep (0.0-1.0, default: 0.5).
+                   Lower values = more compression but potential accuracy loss.
+                   0.3 = aggressive, 0.5 = balanced, 0.7 = conservative
+        calibration_samples: Number of calibration samples for activation collection
+        calibration_dataset: Dataset name for calibration (e.g., "wikitext", "c4")
+        target_layers: List of layer name patterns to compress (None = all linear layers)
+        output_dir: Directory to save compressed model (auto-generated if None)
+
+    Returns:
+        Dictionary with compression results including:
+        - checkpoint_path: Path to compressed model
+        - model_size_gb: Size of compressed model
+        - compression_ratio: Compression ratio achieved
+        - compression_time_sec: Time taken for compression
+        - layers_compressed: Number of layers compressed
+    """
+    print(f"[ASVD] Starting ASVD compression with rank_ratio={rank_ratio}...")
+
+    try:
+        compressor = get_quantizer("asvd")
+        result = compressor.compress(
+            model_name=model_path,
+            rank_ratio=rank_ratio,
+            calibration_samples=calibration_samples,
+            calibration_dataset=calibration_dataset,
+            target_layers=target_layers,
+            output_dir=output_dir,
+        )
+
+        print(f"[ASVD] Completed! Saved to {result['checkpoint_path']}")
+        print(f"[ASVD] Compression ratio: {result['compression_ratio']:.2f}x")
+        print(f"[ASVD] Layers compressed: {result.get('layers_compressed', 0)}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"ASVD compression failed: {e}")
+        raise
+
+
+@tool
 def list_available_quantization_methods() -> List[Dict[str, Any]]:
     """List all available quantization methods with their characteristics.
 
@@ -409,6 +466,15 @@ def list_available_quantization_methods() -> List[Dict[str, Any]]:
             "pros": ["Preserves important weights", "Good for LLMs"],
             "cons": ["Limited bit width options"],
             "recommended_for": ["Llama models", "Chat applications"],
+        },
+        {
+            "name": "asvd",
+            "description": "Activation-aware Singular Value Decomposition compression",
+            "supported_bits": None,  # Uses rank_ratio instead of bits
+            "rank_ratios": [0.3, 0.5, 0.7],
+            "pros": ["Smooth accuracy/compression trade-off", "No special hardware needed", "Works on any architecture"],
+            "cons": ["May need calibration data", "Less compression than quantization for same accuracy"],
+            "recommended_for": ["When quantization causes too much accuracy loss", "Fine-grained compression control", "CPU inference"],
         },
         {
             "name": "lora",
@@ -504,5 +570,6 @@ __all__ = [
     "list_available_quantization_methods",
     "apply_lora_finetuning",
     "apply_qlora_finetuning",
+    "apply_asvd_compression",
     "get_quantization_subagent",
 ]

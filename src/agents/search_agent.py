@@ -328,6 +328,391 @@ def multi_armed_bandit_search(
     }
 
 
+def compute_bandit_reward(
+    eval_result: Dict[str, Any],
+    weights: Optional[Dict[str, float]] = None,
+) -> float:
+    """Convert evaluation result to bandit reward (0-1 scale).
+
+    This function transforms multi-objective evaluation results into a single
+    scalar reward suitable for multi-armed bandit algorithms.
+
+    Args:
+        eval_result: Evaluation result dictionary with keys like:
+            - accuracy or average_accuracy: Model accuracy (0-1)
+            - latency_ms: Inference latency in milliseconds
+            - memory_gb: Memory usage in GB
+            - compression_ratio: Size reduction ratio
+        weights: Optional weights for combining objectives.
+            Defaults to {"accuracy": 0.7, "latency": 0.2, "compression": 0.1}
+
+    Returns:
+        Reward value in range [0, 1], higher is better
+    """
+    if weights is None:
+        weights = {
+            "accuracy": 0.7,
+            "latency": 0.2,
+            "compression": 0.1,
+        }
+
+    # Extract metrics
+    accuracy = eval_result.get("accuracy", eval_result.get("average_accuracy", 0.5))
+    latency_ms = eval_result.get("latency_ms", 100.0)
+    compression_ratio = eval_result.get("compression_ratio", 1.0)
+
+    # Normalize to 0-1 scale
+    # Accuracy is already 0-1
+    acc_score = min(1.0, max(0.0, accuracy))
+
+    # Latency: lower is better, use inverse sigmoid-like transform
+    # 50ms -> 0.67, 100ms -> 0.5, 200ms -> 0.33
+    latency_score = 1.0 / (1.0 + latency_ms / 100.0)
+
+    # Compression: higher is better, capped at 4x
+    # 2x -> 0.5, 4x -> 1.0
+    compression_score = min(1.0, compression_ratio / 4.0)
+
+    # Weighted combination
+    reward = (
+        weights.get("accuracy", 0.7) * acc_score +
+        weights.get("latency", 0.2) * latency_score +
+        weights.get("compression", 0.1) * compression_score
+    )
+
+    # Normalize to ensure reward is in [0, 1]
+    total_weight = sum(weights.values())
+    reward = reward / total_weight if total_weight > 0 else reward
+
+    return min(1.0, max(0.0, reward))
+
+
+def update_bandit_rewards(
+    rewards_history: Dict[str, List[float]],
+    method: str,
+    eval_result: Dict[str, Any],
+    weights: Optional[Dict[str, float]] = None,
+) -> Dict[str, List[float]]:
+    """Update bandit rewards history with a new evaluation result.
+
+    Args:
+        rewards_history: Current rewards history {method: [rewards]}
+        method: Method that was used
+        eval_result: Evaluation result from the method
+        weights: Optional reward weights
+
+    Returns:
+        Updated rewards history
+    """
+    reward = compute_bandit_reward(eval_result, weights)
+
+    if rewards_history is None:
+        rewards_history = {}
+
+    if method not in rewards_history:
+        rewards_history[method] = []
+
+    rewards_history[method].append(reward)
+    return rewards_history
+
+
+@tool
+def check_early_stopping(
+    history: List[Dict[str, Any]],
+    strategy: str = "convergence",
+    patience: int = 5,
+    min_improvement: float = 0.001,
+    time_budget_hours: Optional[float] = None,
+    elapsed_hours: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Check if optimization should stop early based on various criteria.
+
+    Supports multiple early stopping strategies:
+    - convergence: No Pareto improvement for N episodes
+    - plateau: Mean fitness not improving
+    - combined: Uses both convergence and plateau detection
+
+    Args:
+        history: List of evaluation history entries with 'result' dicts
+        strategy: Stopping strategy ('convergence', 'plateau', 'combined')
+        patience: Number of episodes to wait before stopping
+        min_improvement: Minimum improvement threshold
+        time_budget_hours: Optional time budget
+        elapsed_hours: Optional elapsed time
+
+    Returns:
+        Dictionary with:
+        - should_stop: Whether to stop early
+        - reason: Reason for stopping (if applicable)
+        - metrics: Diagnostic metrics
+    """
+    print(f"[EarlyStopping] Checking with strategy={strategy}, patience={patience}")
+
+    if not history or len(history) < patience:
+        return {
+            "should_stop": False,
+            "reason": None,
+            "metrics": {"episodes": len(history) if history else 0},
+        }
+
+    # Extract scores from history
+    scores = []
+    for entry in history:
+        result = entry.get("result", {})
+        score = result.get("accuracy", result.get("average_accuracy", 0.0))
+        scores.append(score)
+
+    metrics = {
+        "episodes": len(history),
+        "best_score": max(scores) if scores else 0.0,
+        "current_score": scores[-1] if scores else 0.0,
+        "mean_recent": np.mean(scores[-patience:]) if len(scores) >= patience else 0.0,
+    }
+
+    should_stop = False
+    reason = None
+
+    # Check time budget
+    if time_budget_hours and elapsed_hours:
+        if elapsed_hours >= time_budget_hours * 0.95:  # 95% of budget
+            should_stop = True
+            reason = f"Time budget exhausted ({elapsed_hours:.2f}h / {time_budget_hours}h)"
+            print(f"[EarlyStopping] {reason}")
+            return {"should_stop": True, "reason": reason, "metrics": metrics}
+
+    # Strategy-specific checks
+    if strategy in ["convergence", "combined"]:
+        # Check if best score hasn't improved in patience episodes
+        if len(scores) >= patience:
+            recent_best = max(scores[-patience:])
+            overall_best = max(scores)
+            improvement = overall_best - recent_best
+
+            if improvement < min_improvement:
+                should_stop = True
+                reason = f"Convergence: No improvement in {patience} episodes (best={overall_best:.4f})"
+                metrics["convergence_detected"] = True
+
+    if strategy in ["plateau", "combined"] and not should_stop:
+        # Check if mean score is plateauing
+        if len(scores) >= patience * 2:
+            recent_mean = np.mean(scores[-patience:])
+            previous_mean = np.mean(scores[-patience*2:-patience])
+            improvement = recent_mean - previous_mean
+
+            if abs(improvement) < min_improvement:
+                should_stop = True
+                reason = f"Plateau: Mean score stable for {patience*2} episodes"
+                metrics["plateau_detected"] = True
+
+    if should_stop:
+        print(f"[EarlyStopping] Stopping: {reason}")
+    else:
+        print(f"[EarlyStopping] Continue (best={metrics['best_score']:.4f})")
+
+    return {
+        "should_stop": should_stop,
+        "reason": reason,
+        "metrics": metrics,
+    }
+
+
+@tool
+def population_based_training(
+    population_size: int = 8,
+    exploit_interval: int = 5,
+    perturb_factors: List[float] = None,
+    search_space: Dict[str, Any] = None,
+    performance_history: Optional[List[Dict[str, Any]]] = None,
+    current_generation: int = 0,
+) -> Dict[str, Any]:
+    """Run Population-based Training for hyperparameter optimization.
+
+    PBT combines the best of random search and hand-tuning by:
+    1. Training a population of models in parallel
+    2. Periodically copying weights from better performers (exploit)
+    3. Perturbing hyperparameters to explore new configurations (explore)
+
+    Args:
+        population_size: Number of parallel training runs
+        exploit_interval: Episodes between exploit/explore steps
+        perturb_factors: Factors for perturbing hyperparameters [0.8, 1.0, 1.2]
+        search_space: Hyperparameter search space definition
+        performance_history: Previous population performance history.
+            Each entry should have 'member_id', 'params', 'result'
+        current_generation: Current generation number
+
+    Returns:
+        Dictionary with:
+        - population: Current population configurations
+        - exploits_performed: Number of exploit operations
+        - explores_performed: Number of explore operations
+        - best_member: Best performing member
+        - next_generation: Next generation number
+        - ready_for_exploit: Whether exploit/explore should happen
+    """
+    print(f"[PBT] Population-based training (gen {current_generation}, pop_size={population_size})")
+
+    if perturb_factors is None:
+        perturb_factors = [0.8, 1.0, 1.2]
+
+    if search_space is None:
+        search_space = _get_default_compression_search_space()
+
+    # Initialize or update population
+    if not performance_history or len(performance_history) == 0:
+        # Generate initial population
+        population = []
+        for i in range(population_size):
+            member = {
+                "member_id": f"member_{i:03d}",
+                "params": _sample_params_dict(search_space),
+                "generation": 0,
+                "parent_id": None,
+            }
+            population.append(member)
+
+        print(f"[PBT] Initialized population with {population_size} members")
+        return {
+            "search_method": "population_based_training",
+            "population": population,
+            "candidates_to_evaluate": population,
+            "exploits_performed": 0,
+            "explores_performed": 0,
+            "best_member": None,
+            "current_generation": 0,
+            "next_generation": 1,
+            "ready_for_exploit": False,
+            "message": "Initial population generated. Please evaluate all members.",
+        }
+
+    # Build current population from history
+    # Group by member_id and get latest entry for each
+    member_latest = {}
+    for entry in performance_history:
+        member_id = entry.get("member_id", entry.get("params", {}).get("member_id"))
+        if member_id:
+            if member_id not in member_latest or entry.get("generation", 0) > member_latest[member_id].get("generation", 0):
+                member_latest[member_id] = entry
+
+    # Calculate performance for each member
+    members_with_perf = []
+    for member_id, entry in member_latest.items():
+        result = entry.get("result", {})
+        perf = compute_bandit_reward(result)
+        members_with_perf.append({
+            "member_id": member_id,
+            "params": entry.get("params", {}),
+            "performance": perf,
+            "result": result,
+            "generation": entry.get("generation", current_generation),
+        })
+
+    # Sort by performance
+    members_with_perf.sort(key=lambda x: x["performance"], reverse=True)
+
+    best_member = members_with_perf[0] if members_with_perf else None
+    print(f"[PBT] Best member: {best_member['member_id']} (perf={best_member['performance']:.4f})" if best_member else "[PBT] No best member yet")
+
+    # Check if exploit/explore should happen
+    ready_for_exploit = (current_generation + 1) % exploit_interval == 0
+
+    if not ready_for_exploit:
+        print(f"[PBT] Not yet time for exploit/explore (next at gen {((current_generation // exploit_interval) + 1) * exploit_interval})")
+        return {
+            "search_method": "population_based_training",
+            "population": members_with_perf,
+            "candidates_to_evaluate": [],
+            "exploits_performed": 0,
+            "explores_performed": 0,
+            "best_member": best_member,
+            "current_generation": current_generation,
+            "next_generation": current_generation + 1,
+            "ready_for_exploit": False,
+        }
+
+    # Perform exploit and explore
+    print(f"[PBT] Performing exploit/explore at generation {current_generation}")
+
+    exploits = 0
+    explores = 0
+    new_population = []
+
+    # Top 20% are "good" performers
+    num_good = max(1, population_size // 5)
+    good_members = members_with_perf[:num_good]
+
+    # Bottom 20% are replaced
+    num_replace = max(1, population_size // 5)
+
+    for i, member in enumerate(members_with_perf):
+        if i < num_replace:
+            # Bottom performers: EXPLOIT from top, then EXPLORE
+            parent = random.choice(good_members)
+            new_params = parent["params"].copy()
+
+            # Perturb hyperparameters (EXPLORE)
+            for param_name, param_spec in search_space.items():
+                if param_name in new_params and random.random() < 0.5:
+                    if param_spec.get("type") == "continuous":
+                        factor = random.choice(perturb_factors)
+                        new_val = new_params[param_name] * factor
+                        new_val = max(param_spec.get("min", 0), min(param_spec.get("max", 1), new_val))
+                        new_params[param_name] = new_val
+                    elif param_spec.get("type") == "choice":
+                        new_params[param_name] = random.choice(param_spec["values"])
+
+            new_member = {
+                "member_id": member["member_id"],
+                "params": new_params,
+                "generation": current_generation + 1,
+                "parent_id": parent["member_id"],
+            }
+            new_population.append(new_member)
+            exploits += 1
+            explores += 1
+
+        elif i >= len(members_with_perf) - num_good:
+            # Top performers: keep as-is
+            new_member = {
+                "member_id": member["member_id"],
+                "params": member["params"],
+                "generation": current_generation + 1,
+                "parent_id": None,
+            }
+            new_population.append(new_member)
+
+        else:
+            # Middle performers: small random perturbation
+            new_params = member["params"].copy()
+            if random.random() < 0.3:
+                param_name = random.choice(list(search_space.keys()))
+                new_params[param_name] = _sample_param_value(search_space[param_name])
+                explores += 1
+
+            new_member = {
+                "member_id": member["member_id"],
+                "params": new_params,
+                "generation": current_generation + 1,
+                "parent_id": None,
+            }
+            new_population.append(new_member)
+
+    print(f"[PBT] Exploited {exploits} members, explored {explores}")
+
+    return {
+        "search_method": "population_based_training",
+        "population": new_population,
+        "candidates_to_evaluate": new_population,
+        "exploits_performed": exploits,
+        "explores_performed": explores,
+        "best_member": best_member,
+        "current_generation": current_generation,
+        "next_generation": current_generation + 1,
+        "ready_for_exploit": True,
+    }
+
+
 @tool
 def random_search(
     search_space: Dict[str, Any],
@@ -755,12 +1140,23 @@ When you receive a search request:
             bayesian_optimization_search,
             evolutionary_search,
             multi_armed_bandit_search,
+            population_based_training,
             random_search,
             grid_search,
             analyze_search_history,
+            check_early_stopping,
         ],
         "model": "anthropic:claude-3-haiku-20240307",
     }
 
 
-__all__ = ["get_search_subagent", "bayesian_optimization_search", "evolutionary_search"]
+__all__ = [
+    "get_search_subagent",
+    "bayesian_optimization_search",
+    "evolutionary_search",
+    "multi_armed_bandit_search",
+    "population_based_training",
+    "check_early_stopping",
+    "compute_bandit_reward",
+    "update_bandit_rewards",
+]

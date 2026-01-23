@@ -47,6 +47,7 @@ from src.agents.quantization_agent import (
     list_available_quantization_methods,
     apply_lora_finetuning,
     apply_qlora_finetuning,
+    apply_asvd_compression,
 )
 from src.agents.evaluation_agent import (
     evaluate_model,
@@ -59,6 +60,10 @@ from src.agents.search_agent import (
     bayesian_optimization_search,
     evolutionary_search,
     multi_armed_bandit_search,
+    population_based_training,
+    check_early_stopping,
+    compute_bandit_reward,
+    update_bandit_rewards,
     analyze_search_history,
 )
 from src.agents.pruning_agent import (
@@ -106,6 +111,7 @@ You make autonomous decisions about which compression strategies to try next bas
 
 Available actions:
 - "quantization": Apply a single quantization strategy
+- "asvd": Apply ASVD (Activation-aware SVD) compression with rank_ratio control
 - "lora": Apply LoRA fine-tuning (for accuracy recovery)
 - "qlora": Apply QLoRA (4-bit base + LoRA, memory-efficient)
 - "pruning": Apply pruning to remove weights
@@ -168,6 +174,7 @@ Available methods:
 - gptq: Post-training quantization, fast and efficient (supports 2,3,4,8 bits)
 - int8: 8-bit quantization via BitsAndBytes, simple and reliable
 - awq: Activation-aware weight quantization, best accuracy preservation (supports 4 bits)
+- asvd: Activation-aware SVD compression, smooth accuracy trade-off (rank_ratio 0.3-0.7)
 - lora: LoRA fine-tuning - adds trainable adapters without modifying base weights
 - qlora: QLoRA - loads base model in 4-bit, trains LoRA adapters (memory efficient)
 
@@ -328,8 +335,8 @@ class LangGraphCoordinator:
             return "end"
 
         action = state.get("next_action", "end")
-        # Route lora/qlora to the quantization node (handles all compression methods)
-        if action in ["quantization", "lora", "qlora"]:
+        # Route lora/qlora/asvd to the quantization node (handles all compression methods)
+        if action in ["quantization", "lora", "qlora", "asvd"]:
             return "quantization"
         if action in ["pruning", "search", "pipeline"]:
             return action
@@ -418,17 +425,19 @@ Model Info:
 
 What should be the next action? Choose one:
 1. "quantization" with specific method and bits
-2. "lora" or "qlora" with lora_rank for fine-tuning
-3. "pruning" with method, sparsity, and granularity
-4. "pipeline" with pipeline_name for multi-step compression
-5. "search" to explore new strategies
-6. "end" if converged or should stop
+2. "asvd" with rank_ratio (0.3=aggressive, 0.5=balanced, 0.7=conservative)
+3. "lora" or "qlora" with lora_rank for fine-tuning
+4. "pruning" with method, sparsity, and granularity
+5. "pipeline" with pipeline_name for multi-step compression
+6. "search" to explore new strategies
+7. "end" if converged or should stop
 
 Note: Consider CO2 emissions when choosing strategies. Lower bit quantization
 typically reduces energy consumption and carbon footprint.
 
 Respond in JSON format:
 For quantization: {{"action": "quantization", "method": "autoround|gptq|int8|awq", "bits": 4, "reasoning": "..."}}
+For ASVD: {{"action": "asvd", "method": "asvd", "rank_ratio": 0.5, "reasoning": "..."}}
 For LoRA/QLoRA: {{"action": "lora|qlora", "method": "lora|qlora", "lora_rank": 16, "reasoning": "..."}}
 For pruning: {{"action": "pruning", "method": "magnitude|structured", "sparsity": 0.3, "granularity": "weight|channel|head", "reasoning": "..."}}
 For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|accuracy_recovery|...", "reasoning": "..."}}
@@ -474,6 +483,11 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
             action_params = {
                 "method": decision.get("method", "gptq"),
                 "bits": decision.get("bits", 4),
+            }
+        elif action == "asvd":
+            action_params = {
+                "method": "asvd",
+                "rank_ratio": decision.get("rank_ratio", 0.5),
             }
         elif action in ["lora", "qlora"]:
             action_params = {
@@ -562,6 +576,53 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         """
         params = state.get("action_params", {})
         method = params.get("method", "gptq")
+
+        # Handle ASVD compression
+        if method == "asvd":
+            rank_ratio = params.get("rank_ratio", 0.5)
+            print(f"  Applying ASVD compression with rank_ratio={rank_ratio}...")
+
+            # Create strategy
+            strategy = CompressionStrategy(
+                episode_id=state["current_episode"],
+                strategy_id=f"strategy_{state['current_episode']:03d}",
+                methods=[CompressionMethod.ASVD],
+                quantization_method="asvd",
+                asvd_rank_ratio=rank_ratio,
+                calibration_dataset=state["dataset"],
+            )
+
+            # Save strategy
+            episode_dir = Path(state["experiment_dir"]) / f"episode_{state['current_episode']:03d}"
+            episode_dir.mkdir(parents=True, exist_ok=True)
+            with open(episode_dir / "strategy.json", "w") as f:
+                json.dump(strategy.model_dump(), f, indent=2, default=str)
+
+            # Execute ASVD compression
+            result = None
+            try:
+                result = apply_asvd_compression.invoke({
+                    "model_path": state["model_name"],
+                    "rank_ratio": rank_ratio,
+                    "calibration_samples": state["model_spec"].get("calibration_samples", 512),
+                    "calibration_dataset": state["dataset"],
+                })
+                compressed_path = result.get("checkpoint_path", f"data/checkpoints/{strategy.strategy_id}")
+                print(f"  ASVD-compressed model saved to: {compressed_path}")
+            except Exception as e:
+                print(f"  ASVD compression failed: {e}")
+                compressed_path = None
+
+            # Extract compression metrics
+            compression_ratio = result.get("compression_ratio", 1.0) if result else 1.0
+            model_size_gb = result.get("model_size_gb", state["model_spec"].get("model_size_gb", 1.0)) if result else state["model_spec"].get("model_size_gb", 1.0)
+
+            return {
+                "current_strategy": strategy.model_dump(),
+                "compressed_model_path": compressed_path,
+                "compression_ratio": compression_ratio,
+                "compressed_model_size_gb": model_size_gb,
+            }
 
         # Handle LoRA/QLoRA fine-tuning
         if method in ["lora", "qlora"]:
@@ -907,28 +968,70 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
     def _search_node(self, state: CompressionState) -> Dict[str, Any]:
         """Search node: Use optimization to suggest strategies.
 
+        Uses multi-armed bandit with real rewards from evaluation history.
+
         Args:
             state: Current compression state
 
         Returns:
             State updates with suggested action_params
         """
-        print("  Running search optimization...")
+        print("  Running search optimization with real rewards...")
 
         history = state.get("history", [])
+        available_methods = ["autoround", "gptq", "int8", "awq"]
+
+        # Build rewards history from evaluation results
+        rewards_history: Dict[str, List[float]] = state.get("bandit_rewards", {})
+
+        # Update rewards from history if not already tracked
+        if not rewards_history and history:
+            for entry in history:
+                strategy = entry.get("strategy", {})
+                result = entry.get("result", {})
+
+                # Extract method from strategy
+                quant_method = strategy.get("quantization_method")
+                if quant_method and quant_method in available_methods:
+                    # Compute reward from result
+                    reward = compute_bandit_reward(result)
+                    rewards_history = update_bandit_rewards(
+                        rewards_history, quant_method, result
+                    )
 
         try:
-            # Use multi-armed bandit for method selection
+            # Use multi-armed bandit for method selection with real rewards
             suggestion = multi_armed_bandit_search.invoke({
-                "history": history,
-                "available_methods": ["autoround", "gptq", "int8", "awq"],
-                "exploration_rate": 0.2,
+                "arms": available_methods,
+                "rewards_history": rewards_history,
+                "exploration_strategy": "ucb",
+                "exploration_param": 2.0,
             })
 
-            method = suggestion.get("recommended_method", "gptq")
-            bits = suggestion.get("recommended_bits", 4)
+            selected_arm = suggestion.get("selected_arm", "gptq")
+            arm_stats = suggestion.get("arm_statistics", {})
+
+            # Log arm statistics
+            if arm_stats:
+                print(f"  Arm statistics:")
+                for arm, stats in arm_stats.items():
+                    if stats["count"] > 0:
+                        print(f"    {arm}: mean={stats['mean']:.3f}, count={stats['count']}")
+
+            method = selected_arm
+            # Select bits based on method performance and model size
+            model_size = state["model_spec"].get("model_size_gb", 1.0)
+            if model_size > 30:
+                bits = 4  # Larger models benefit more from 4-bit
+            elif method == "int8":
+                bits = 8
+            else:
+                bits = 4  # Default to 4-bit for most methods
+
         except Exception as e:
             print(f"  Search failed: {e}")
+            import traceback
+            traceback.print_exc()
             method = "gptq"
             bits = 4
 
@@ -937,7 +1040,16 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         return {
             "next_action": "quantization",
             "action_params": {"method": method, "bits": bits},
+            "bandit_rewards": rewards_history,
         }
+
+    def _cleanup_gpu_memory(self):
+        """Force GPU memory cleanup between episodes."""
+        import gc
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
 
     def _update_state_node(self, state: CompressionState) -> Dict[str, Any]:
         """Update state after evaluation.
@@ -950,6 +1062,9 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         Returns:
             State updates with history, pareto_frontier, episode counter
         """
+        # Clean up GPU memory before processing to prevent OOM between episodes
+        self._cleanup_gpu_memory()
+
         strategy = state.get("current_strategy", {})
         result = state.get("current_result", {})
 
@@ -989,11 +1104,28 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
             for sol in self.pareto_frontier.get_frontier()
         ]
 
+        # Update bandit rewards with this episode's result
+        bandit_rewards = state.get("bandit_rewards", {})
+        quant_method = strategy.get("quantization_method")
+        if quant_method:
+            # Extract base method name (strip any pipeline: prefix)
+            if quant_method.startswith("pipeline:"):
+                method_name = None  # Skip pipeline methods for MAB
+            else:
+                method_name = quant_method.lower()
+
+            if method_name and method_name in ["autoround", "gptq", "int8", "awq"]:
+                bandit_rewards = update_bandit_rewards(
+                    bandit_rewards, method_name, result
+                )
+                print(f"  [MAB] Updated rewards for {method_name}")
+
         return {
             "history": [new_history_entry],
             "pareto_frontier": pareto_solutions,
             "current_episode": state["current_episode"] + 1,
             "consecutive_no_improvement": consecutive_no_improvement,
+            "bandit_rewards": bandit_rewards,
             "current_strategy": None,
             "current_result": None,
             "compressed_model_path": None,
@@ -1118,16 +1250,16 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
             experiment_dir=str(self.experiment_dir),
         )
 
-        # Run the graph
+        # Run the graph with increased recursion limit for complex pipelines
         try:
             if interactive:
                 # Stream for visibility
-                for step in self.graph.stream(initial_state):
+                for step in self.graph.stream(initial_state, {"recursion_limit": 100}):
                     node_name = list(step.keys())[0]
                     if node_name == "__end__":
                         break
             else:
-                final_state = self.graph.invoke(initial_state)
+                final_state = self.graph.invoke(initial_state, {"recursion_limit": 100})
         except Exception as e:
             print(f"\nError during optimization: {e}")
             import traceback

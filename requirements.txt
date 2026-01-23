@@ -60,6 +60,8 @@ mypy>=1.5.0
 # GPU-backed quantizers (AutoRound/GPTQ/AWQ) require CUDA toolchains and
 # are now listed in requirements.quantization.txt so that base installs
 # work on CPU-only machines. Install them manually when needed.
+optimum>=1.24.0  # Required by gptqmodel for GPTQ quantization
+# llmcompressor>=0.8.0  # Optional: vLLM's llm-compressor for AWQ (install manually if needed)
 trl>=0.7.0  # For distillation
 datasets>=2.14.0  # For benchmarks
 evaluate>=0.4.0  # For evaluation metrics

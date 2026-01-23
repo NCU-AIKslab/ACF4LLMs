@@ -83,7 +83,21 @@ class BenchmarkRunner:
             model, tokenizer = self._load_model(checkpoint_path)
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
-            return {"error": str(e)}
+            return {
+                "error": str(e),
+                "success": False,
+                "checkpoint_path": checkpoint_path,
+                "benchmarks": benchmarks,
+                "benchmark_scores": {},
+                "average_accuracy": 0.0,
+                "latency_ms": 0.0,
+                "throughput_tokens_per_sec": 0.0,
+                "memory_gb": 0.0,
+                "evaluation_time_sec": 0.0,
+                "is_proxy": use_proxy,
+                "timestamp": datetime.now().isoformat(),
+                "performance_metrics": {},
+            }
 
         # Separate benchmarks into lm-eval vs custom
         lm_eval_tasks = [

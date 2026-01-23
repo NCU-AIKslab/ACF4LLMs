@@ -2,10 +2,19 @@
 
 This module provides a centralized MODEL_SIZE_DATABASE and model size estimation
 function to avoid code duplication across agents and tools.
+
+Enhanced with:
+- Dynamic model info fetching from HuggingFace Hub API
+- Caching for API results to avoid repeated calls
+- Fallback chain: Hub API → regex pattern → database
 """
 
 import re
-from typing import Optional, Tuple
+import logging
+from typing import Any, Dict, Optional, Tuple
+from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 
 # Comprehensive model size database (in GB) - single source of truth
@@ -61,32 +70,218 @@ MODEL_SIZE_DATABASE = {
     "tiiuae/falcon-7b-instruct": 14.0,
     "tiiuae/falcon-40b": 80.0,
     "tiiuae/falcon-40b-instruct": 80.0,
+
+    # Phi family (Microsoft)
+    "microsoft/phi-1": 2.7,
+    "microsoft/phi-1_5": 2.8,
+    "microsoft/phi-2": 5.4,
+    "microsoft/phi-3-mini-4k-instruct": 7.6,
+    "microsoft/phi-3-mini-128k-instruct": 7.6,
+    "microsoft/phi-3-small-8k-instruct": 14.0,
+    "microsoft/phi-3-medium-4k-instruct": 28.0,
+
+    # Gemma family (Google)
+    "google/gemma-2b": 5.0,
+    "google/gemma-2b-it": 5.0,
+    "google/gemma-7b": 17.0,
+    "google/gemma-7b-it": 17.0,
+    "google/gemma-2-9b": 18.0,
+    "google/gemma-2-9b-it": 18.0,
+    "google/gemma-2-27b": 54.0,
+    "google/gemma-2-27b-it": 54.0,
+
+    # DeepSeek family
+    "deepseek-ai/deepseek-llm-7b-base": 14.0,
+    "deepseek-ai/deepseek-llm-7b-chat": 14.0,
+    "deepseek-ai/deepseek-llm-67b-base": 134.0,
+    "deepseek-ai/deepseek-coder-6.7b-base": 13.4,
+    "deepseek-ai/deepseek-coder-33b-base": 66.0,
+
+    # Yi family (01.AI)
+    "01-ai/Yi-6B": 12.0,
+    "01-ai/Yi-6B-Chat": 12.0,
+    "01-ai/Yi-9B": 18.0,
+    "01-ai/Yi-34B": 68.0,
+    "01-ai/Yi-34B-Chat": 68.0,
+
+    # StarCoder family
+    "bigcode/starcoder": 30.0,
+    "bigcode/starcoder2-3b": 6.0,
+    "bigcode/starcoder2-7b": 14.0,
+    "bigcode/starcoder2-15b": 30.0,
+
+    # InternLM family
+    "internlm/internlm2-7b": 14.0,
+    "internlm/internlm2-20b": 40.0,
+    "internlm/internlm2.5-7b": 14.0,
 }
 
+# Cache for Hub API results (in-memory)
+_hub_cache: Dict[str, Dict[str, Any]] = {}
 
-def estimate_model_size_gb(model_name: str) -> float:
+
+@lru_cache(maxsize=128)
+def get_model_info_from_hub(model_name: str) -> Optional[Dict[str, Any]]:
+    """Fetch model info from HuggingFace Hub API.
+
+    This function queries the HuggingFace Hub API to get model metadata
+    including size, architecture, and parameter count.
+
+    Args:
+        model_name: HuggingFace model name (e.g., 'meta-llama/Meta-Llama-3-8B')
+
+    Returns:
+        Dictionary with model info or None if unavailable:
+        - model_size_gb: Estimated size in GB (FP16)
+        - parameters: Number of parameters (if available)
+        - architecture: Model architecture type
+        - safetensors_size_bytes: Size of safetensors files
+    """
+    # Check in-memory cache first
+    if model_name in _hub_cache:
+        return _hub_cache[model_name]
+
+    try:
+        from huggingface_hub import model_info, HfApi
+
+        info = model_info(model_name)
+
+        result: Dict[str, Any] = {
+            "model_id": info.id,
+            "architecture": None,
+            "parameters": None,
+            "model_size_gb": None,
+            "safetensors_size_bytes": None,
+        }
+
+        # Try to get size from safetensors first (more accurate)
+        if info.safetensors:
+            # safetensors has total size info
+            total_bytes = info.safetensors.total
+            if total_bytes:
+                result["safetensors_size_bytes"] = total_bytes
+                # Convert to GB
+                result["model_size_gb"] = total_bytes / (1024 ** 3)
+                logger.debug(f"Got size from safetensors: {result['model_size_gb']:.2f} GB")
+
+        # Try to get size from siblings (model files)
+        if result["model_size_gb"] is None and info.siblings:
+            total_bytes = 0
+            for sibling in info.siblings:
+                filename = sibling.rfilename
+                if filename.endswith(('.safetensors', '.bin', '.pt', '.pth')):
+                    if sibling.size:
+                        total_bytes += sibling.size
+
+            if total_bytes > 0:
+                result["model_size_gb"] = total_bytes / (1024 ** 3)
+                logger.debug(f"Got size from siblings: {result['model_size_gb']:.2f} GB")
+
+        # Try to get architecture from config
+        if info.config:
+            architectures = info.config.get("architectures", [])
+            if architectures:
+                result["architecture"] = architectures[0]
+
+            # Try to estimate parameters from config
+            if "num_parameters" in info.config:
+                result["parameters"] = info.config["num_parameters"]
+            elif all(k in info.config for k in ["hidden_size", "num_hidden_layers", "vocab_size"]):
+                # Rough estimate based on transformer architecture
+                hidden = info.config["hidden_size"]
+                layers = info.config["num_hidden_layers"]
+                vocab = info.config["vocab_size"]
+                # Approximate: embedding + layers * (attention + FFN)
+                params = vocab * hidden + layers * (4 * hidden * hidden + 8 * hidden * hidden)
+                result["parameters"] = params
+
+        # Cache the result
+        _hub_cache[model_name] = result
+
+        logger.info(f"Fetched model info from Hub: {model_name} -> {result['model_size_gb']:.2f} GB")
+        return result
+
+    except ImportError:
+        logger.warning("huggingface_hub not installed, skipping Hub API")
+        return None
+    except Exception as e:
+        logger.debug(f"Failed to fetch model info from Hub for {model_name}: {e}")
+        return None
+
+
+def get_model_architecture_from_hub(model_name: str) -> Optional[str]:
+    """Get model architecture type from HuggingFace Hub.
+
+    Args:
+        model_name: HuggingFace model name
+
+    Returns:
+        Architecture string (e.g., 'LlamaForCausalLM') or None
+    """
+    info = get_model_info_from_hub(model_name)
+    if info:
+        return info.get("architecture")
+    return None
+
+
+def get_model_config_from_hub(model_name: str) -> Optional[Dict[str, Any]]:
+    """Get model configuration from HuggingFace Hub.
+
+    Args:
+        model_name: HuggingFace model name
+
+    Returns:
+        Model config dictionary or None
+    """
+    try:
+        from huggingface_hub import hf_hub_download
+        import json
+
+        config_path = hf_hub_download(
+            repo_id=model_name,
+            filename="config.json",
+            local_files_only=False,
+        )
+        with open(config_path, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.debug(f"Failed to get config from Hub: {e}")
+        return None
+
+
+def estimate_model_size_gb(model_name: str, use_hub_api: bool = True) -> float:
     """Estimate model size in GB from model name.
 
-    Uses the known model database and pattern matching to estimate the original
-    model size. Falls back to 1.0 GB if unknown.
+    Uses a fallback chain to estimate model size:
+    1. HuggingFace Hub API (most accurate, if available)
+    2. Known model database (fast, no network)
+    3. Pattern matching from name (e.g., "7B" -> ~14 GB)
+    4. Default fallback (1.0 GB)
 
     Args:
         model_name: HuggingFace model name or path
+        use_hub_api: Whether to try Hub API first (default: True)
 
     Returns:
         Estimated model size in GB (FP16 weights)
     """
-    # Check exact match first
+    # 1. Try Hub API first (most accurate)
+    if use_hub_api:
+        hub_info = get_model_info_from_hub(model_name)
+        if hub_info and hub_info.get("model_size_gb"):
+            return hub_info["model_size_gb"]
+
+    # 2. Check exact match in database
     if model_name in MODEL_SIZE_DATABASE:
         return MODEL_SIZE_DATABASE[model_name]
 
-    # Check partial match (e.g., "gpt2" in "openai/gpt2")
+    # 3. Check partial match (e.g., "gpt2" in "openai/gpt2")
     model_lower = model_name.lower()
     for key, size in MODEL_SIZE_DATABASE.items():
         if key.lower() in model_lower or model_lower in key.lower():
             return size
 
-    # Pattern-based extraction (e.g., "7B" -> ~14 GB in FP16)
+    # 4. Pattern-based extraction (e.g., "7B" -> ~14 GB in FP16)
     patterns = [
         (r'(\d+\.?\d*)B', lambda x: float(x) * 2),  # B params -> ~2GB per billion in FP16
         (r'(\d+\.?\d*)b', lambda x: float(x) * 2),
@@ -99,7 +294,8 @@ def estimate_model_size_gb(model_name: str) -> float:
         if match:
             return converter(match.group(1))
 
-    # Default fallback
+    # 5. Default fallback
+    logger.warning(f"Could not determine model size for {model_name}, using 1.0 GB fallback")
     return 1.0
 
 
@@ -149,4 +345,7 @@ __all__ = [
     "estimate_model_size_gb",
     "extract_model_size_from_name",
     "estimate_params_from_size",
+    "get_model_info_from_hub",
+    "get_model_architecture_from_hub",
+    "get_model_config_from_hub",
 ]

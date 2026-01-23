@@ -12,6 +12,7 @@ class CompressionMethod(str, Enum):
     GPTQ = "gptq"
     INT8 = "int8"
     AWQ = "awq"
+    ASVD = "asvd"
     PRUNING = "pruning"
     DISTILLATION = "distillation"
     LORA = "lora"
@@ -78,6 +79,7 @@ class CompressionStrategy(BaseModel):
     pruning_granularity: Optional[str] = Field(None, description="Pruning granularity: weight, channel, or head")
     distillation_teacher: Optional[str] = Field(None, description="Teacher model for distillation")
     lora_rank: Optional[int] = Field(None, description="LoRA rank for fine-tuning")
+    asvd_rank_ratio: Optional[float] = Field(None, description="ASVD rank ratio for SVD compression (0.0-1.0)")
 
     # Execution parameters
     do_finetune: bool = Field(False, description="Whether to fine-tune after compression")
