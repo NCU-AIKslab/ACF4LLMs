@@ -280,11 +280,22 @@ class LatencyEvaluator:
         baseline_perf = self.evaluate_performance(baseline_model, tokenizer)
         compressed_perf = self.evaluate_performance(compressed_model, tokenizer)
 
-        # Calculate improvements
-        speedup = baseline_perf["mean_latency_ms"] / compressed_perf["mean_latency_ms"]
-        memory_reduction = 1 - (compressed_perf["peak_memory_gb"] / baseline_perf["peak_memory_gb"])
+        # Calculate improvements (with zero-division protection)
+        compressed_latency = compressed_perf["mean_latency_ms"]
+        baseline_memory = baseline_perf["peak_memory_gb"]
+        baseline_throughput = baseline_perf["throughput_tokens_per_sec"]
+
+        speedup = (
+            baseline_perf["mean_latency_ms"] / compressed_latency
+            if compressed_latency > 0 else 0.0
+        )
+        memory_reduction = (
+            1 - (compressed_perf["peak_memory_gb"] / baseline_memory)
+            if baseline_memory > 0 else 0.0
+        )
         throughput_improvement = (
-            compressed_perf["throughput_tokens_per_sec"] / baseline_perf["throughput_tokens_per_sec"]
+            compressed_perf["throughput_tokens_per_sec"] / baseline_throughput
+            if baseline_throughput > 0 else 0.0
         )
 
         return {

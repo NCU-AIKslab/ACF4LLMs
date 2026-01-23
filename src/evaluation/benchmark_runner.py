@@ -65,7 +65,20 @@ class BenchmarkRunner:
 
         Returns:
             Dictionary with all evaluation results
+
+        Raises:
+            ValueError: If inputs are invalid
         """
+        # Input validation
+        if not checkpoint_path:
+            raise ValueError("checkpoint_path cannot be empty")
+        if not benchmarks:
+            raise ValueError("benchmarks list cannot be empty")
+        if batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        if proxy_samples <= 0:
+            raise ValueError(f"proxy_samples must be positive, got {proxy_samples}")
+
         logger.info(f"Starting full evaluation for {checkpoint_path}")
         start_time = time.time()
 

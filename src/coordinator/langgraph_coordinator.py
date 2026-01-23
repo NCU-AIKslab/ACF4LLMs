@@ -455,12 +455,24 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         try:
             # Extract JSON from response
             response_text = response.content
-            # Try to find JSON in response
-            import re
-            json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
-            if json_match:
-                decision = json.loads(json_match.group())
-            else:
+            # Try to find JSON in response using balanced brace matching
+            decision = None
+            start_idx = response_text.find('{')
+            if start_idx != -1:
+                brace_count = 0
+                end_idx = start_idx
+                for i, char in enumerate(response_text[start_idx:], start=start_idx):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end_idx = i + 1
+                            break
+                if brace_count == 0:
+                    json_str = response_text[start_idx:end_idx]
+                    decision = json.loads(json_str)
+            if decision is None:
                 # Default to quantization with gptq 4-bit
                 decision = {"action": "quantization", "method": "gptq", "bits": 4}
         except json.JSONDecodeError:

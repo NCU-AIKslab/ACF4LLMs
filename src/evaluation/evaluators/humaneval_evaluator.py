@@ -38,8 +38,8 @@ class HumanEvalEvaluator(BaseEvaluator):
             from datasets import load_dataset
             dataset = load_dataset("openai_humaneval", split="test")
             dataset = dataset.select(range(min(50, len(dataset))))
-        except:
-            logger.warning("HumanEval not available, using mock")
+        except Exception as e:
+            logger.warning(f"HumanEval not available ({e}), using mock")
             return self._mock_evaluate()
 
         passed = 0
@@ -176,7 +176,7 @@ class HumanEvalEvaluator(BaseEvaluator):
         # Get result
         try:
             return result_queue.get_nowait()
-        except:
+        except Exception:
             return False
 
     def _test_solution_simple(self, code: str, example: Dict) -> bool:
@@ -247,7 +247,8 @@ class HumanEvalEvaluator(BaseEvaluator):
             from datasets import load_dataset
             dataset = load_dataset("openai_humaneval", split="test")
             dataset = dataset.select(range(min(num_samples, len(dataset))))
-        except:
+        except Exception as e:
+            logger.warning(f"HumanEval not available ({e}), using mock")
             return self._mock_evaluate()
 
         passed = 0

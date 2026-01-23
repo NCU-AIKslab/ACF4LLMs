@@ -89,8 +89,8 @@ def check_gpu_availability() -> Dict[str, Any]:
                     })
 
             pynvml.nvmlShutdown()
-        except:
-            pass  # nvidia-ml-py not available
+        except Exception:
+            pass  # nvidia-ml-py not available or failed
 
     except ImportError:
         print("[GPU] CUDA not available, checking CPU resources only")
@@ -153,10 +153,10 @@ def monitor_resource_usage(
                     util = pynvml.nvmlDeviceGetUtilizationRates(handle)
                     sample["gpu_utilization"] = util.gpu
                     pynvml.nvmlShutdown()
-                except:
-                    pass
-        except:
-            pass
+                except Exception:
+                    pass  # pynvml not available or failed
+        except Exception:
+            pass  # torch.cuda not available
 
         samples.append(sample)
         time.sleep(interval_seconds)
@@ -453,6 +453,7 @@ def clear_gpu_cache() -> Dict[str, Any]:
     before_free = 0
     after_free = 0
 
+    error_msg = "No GPU available"
     try:
         import torch
 
@@ -482,9 +483,10 @@ def clear_gpu_cache() -> Dict[str, Any]:
                 "freed_gb": freed_gb,
             }
     except Exception as e:
+        error_msg = str(e)
         print(f"[Cache] Error clearing cache: {e}")
 
-    return {"success": False, "error": str(e) if 'e' in locals() else "No GPU available"}
+    return {"success": False, "error": error_msg}
 
 
 def get_resource_monitor_subagent(spec: Dict[str, Any]) -> Dict[str, Any]:

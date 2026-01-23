@@ -819,9 +819,13 @@ def estimate_energy_consumption(
         # Stop tracking and get results
         emissions_kg = tracker.stop()
 
-        # Get detailed data
+        # Get detailed data with null checks
         final_data = tracker.final_emissions_data
-        energy_kwh = final_data.energy_consumed if final_data else 0.0
+        energy_kwh = (
+            final_data.energy_consumed
+            if final_data and final_data.energy_consumed is not None
+            else 0.0
+        )
 
         # Convert to various units
         total_energy_joules = energy_kwh * 3600000  # kWh to Joules

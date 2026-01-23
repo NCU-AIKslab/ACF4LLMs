@@ -257,48 +257,65 @@ class ParetoFrontier:
             return 1 - normalized  # Invert for "lower is better" metrics
 
     def save_to_file(self, path: Optional[str] = None):
-        """Save frontier to JSON file."""
+        """Save frontier to JSON file.
+
+        Raises:
+            ValueError: If no storage path specified
+            IOError: If file cannot be written
+        """
         save_path = path or self.storage_path
         if not save_path:
             raise ValueError("No storage path specified")
 
-        # Ensure directory exists
-        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            # Ensure directory exists
+            Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
-        data = {
-            "frontier": [sol.to_dict() for sol in self.solutions],
-            "history": self.history,
-            "metadata": {
-                "num_solutions": len(self.solutions),
-                "num_evaluated": len(self.history),
-                "last_updated": datetime.now().isoformat()
+            data = {
+                "frontier": [sol.to_dict() for sol in self.solutions],
+                "history": self.history,
+                "metadata": {
+                    "num_solutions": len(self.solutions),
+                    "num_evaluated": len(self.history),
+                    "last_updated": datetime.now().isoformat()
+                }
             }
-        }
 
-        with open(save_path, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
+            with open(save_path, 'w') as f:
+                json.dump(data, f, indent=2, default=str)
+        except (IOError, OSError) as e:
+            print(f"Warning: Failed to save Pareto frontier to {save_path}: {e}")
+            raise IOError(f"Failed to save Pareto frontier: {e}") from e
 
     def load_from_file(self, path: Optional[str] = None):
-        """Load frontier from JSON file."""
+        """Load frontier from JSON file.
+
+        Silently returns if file doesn't exist. Logs warning on parse errors.
+        """
         load_path = path or self.storage_path
         if not load_path or not os.path.exists(load_path):
             return
 
-        with open(load_path, 'r') as f:
-            data = json.load(f)
+        try:
+            with open(load_path, 'r') as f:
+                data = json.load(f)
 
-        self.solutions = []
-        for sol_dict in data.get("frontier", []):
-            strategy = CompressionStrategy(**sol_dict["strategy"])
-            result = EvaluationResult(**sol_dict["result"])
-            solution = ParetoSolution(
-                strategy=strategy,
-                result=result,
-                dominates=sol_dict.get("dominates", [])
-            )
-            self.solutions.append(solution)
+            self.solutions = []
+            for sol_dict in data.get("frontier", []):
+                strategy = CompressionStrategy(**sol_dict["strategy"])
+                result = EvaluationResult(**sol_dict["result"])
+                solution = ParetoSolution(
+                    strategy=strategy,
+                    result=result,
+                    dominates=sol_dict.get("dominates", [])
+                )
+                self.solutions.append(solution)
 
-        self.history = data.get("history", [])
+            self.history = data.get("history", [])
+        except (IOError, OSError) as e:
+            print(f"Warning: Failed to read Pareto frontier from {load_path}: {e}")
+        except (json.JSONDecodeError, KeyError, TypeError) as e:
+            print(f"Warning: Failed to parse Pareto frontier from {load_path}: {e}")
 
     def _save_if_configured(self):
         """Save to file if storage path is configured."""

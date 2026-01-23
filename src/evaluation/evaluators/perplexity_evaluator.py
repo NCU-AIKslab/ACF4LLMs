@@ -21,6 +21,9 @@ from src.evaluation.evaluators.base_evaluator import BaseEvaluator
 
 logger = logging.getLogger(__name__)
 
+# Maximum perplexity value to return on failure (avoids numerical issues with infinity)
+MAX_PERPLEXITY = 1e6
+
 
 class PerplexityEvaluator(BaseEvaluator):
     """Evaluator for model perplexity on text datasets.
@@ -84,7 +87,7 @@ class PerplexityEvaluator(BaseEvaluator):
         text = self._load_dataset(dataset, split, max_samples)
         if not text:
             logger.error(f"Failed to load dataset {dataset}")
-            return float("inf")
+            return MAX_PERPLEXITY
 
         # Calculate perplexity
         result = self.calculate_perplexity(
@@ -125,13 +128,14 @@ class PerplexityEvaluator(BaseEvaluator):
         if not text:
             logger.error(f"Failed to load dataset {dataset}")
             return {
-                "perplexity": float("inf"),
-                "bits_per_byte": float("inf"),
-                "word_perplexity": float("inf"),
-                "avg_nll": float("inf"),
+                "perplexity": MAX_PERPLEXITY,
+                "bits_per_byte": MAX_PERPLEXITY,
+                "word_perplexity": MAX_PERPLEXITY,
+                "avg_nll": MAX_PERPLEXITY,
                 "total_tokens": 0,
                 "dataset": dataset,
                 "split": split,
+                "error": f"Failed to load dataset {dataset}",
             }
 
         # Calculate all metrics
@@ -147,7 +151,7 @@ class PerplexityEvaluator(BaseEvaluator):
         if num_words > 0:
             word_perplexity = math.exp(result["avg_nll"] * result["total_tokens"] / num_words)
         else:
-            word_perplexity = float("inf")
+            word_perplexity = MAX_PERPLEXITY
 
         result["word_perplexity"] = word_perplexity
         result["num_words"] = num_words

@@ -849,7 +849,7 @@ def analyze_search_history(
                         val = float(h["parameters"][param]) if isinstance(h["parameters"][param], (int, float)) else 0
                         param_values.append(val)
                         param_scores.append(h.get(objective, 0))
-                    except:
+                    except (ValueError, TypeError, KeyError):
                         continue
 
             if len(param_values) > 2:

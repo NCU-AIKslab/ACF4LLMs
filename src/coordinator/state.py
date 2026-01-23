@@ -9,9 +9,24 @@ from langchain_core.messages import BaseMessage
 from src.common.schemas import ModelSpec, CompressionStrategy, EvaluationResult
 
 
+# Maximum history entries to prevent unbounded memory growth
+MAX_HISTORY_ENTRIES = 100
+
+# Default convergence threshold (no improvement episodes before stopping)
+DEFAULT_CONVERGENCE_THRESHOLD = 5
+
+
 def merge_history(left: List[Dict], right: List[Dict]) -> List[Dict]:
-    """Reducer for history: append new entries."""
-    return left + right
+    """Reducer for history: append new entries with bounded growth.
+
+    Keeps only the most recent MAX_HISTORY_ENTRIES entries to prevent
+    memory issues in long-running optimization sessions.
+    """
+    combined = left + right
+    if len(combined) > MAX_HISTORY_ENTRIES:
+        # Keep most recent entries
+        return combined[-MAX_HISTORY_ENTRIES:]
+    return combined
 
 
 def replace_value(left: Any, right: Any) -> Any:
@@ -250,7 +265,8 @@ def check_termination(state: CompressionState) -> tuple[bool, Optional[str]]:
         return True, f"Exceeded time budget ({state['budget_hours']}h)"
 
     # Check convergence (no improvement for N consecutive episodes)
-    if state["consecutive_no_improvement"] >= 5:
-        return True, "Converged (no improvement for 5 consecutive episodes)"
+    convergence_threshold = state.get("convergence_threshold", DEFAULT_CONVERGENCE_THRESHOLD)
+    if state["consecutive_no_improvement"] >= convergence_threshold:
+        return True, f"Converged (no improvement for {convergence_threshold} consecutive episodes)"
 
     return False, None

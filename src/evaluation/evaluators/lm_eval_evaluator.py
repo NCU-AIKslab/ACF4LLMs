@@ -103,8 +103,8 @@ class LMEvalEvaluator:
             RuntimeError: If lm-eval is not available
         """
         if not self._check_lm_eval_available():
-            logger.error("lm-eval not available, returning empty results")
-            return {}
+            logger.error("lm-eval not available, returning zero scores")
+            return {task.lower(): 0.0 for task in tasks}
 
         import lm_eval
         from lm_eval.models.huggingface import HFLM
