@@ -172,12 +172,21 @@ export interface ParetoPoint {
 }
 
 // Episode types for coordinator reasoning display
+export interface EpisodeDecisionParams {
+  bits?: number;
+  lora_rank?: number;
+  pruning_ratio?: number;
+  pruning_method?: string;
+  asvd_rank_ratio?: number;
+  pipeline_name?: string;
+}
+
 export interface EpisodeDecision {
   episode_id: number;
   action: string;
   method: string | null;
   reasoning: string;
-  params: Record<string, unknown>;
+  params: EpisodeDecisionParams;
   timestamp: string;
   skill_recommendations?: Array<{
     skill_name: string;

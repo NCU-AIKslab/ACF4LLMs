@@ -54,20 +54,6 @@ function EpisodeCard({ episode, isExpanded, onToggle }: {
   const methodStyle = getMethodStyle(episode.decision.method);
   const result = episode.result;
 
-  // Format parameters for display
-  const formatParams = () => {
-    const params = episode.decision.params;
-    const parts: string[] = [];
-
-    if (params.bits) parts.push(`${params.bits}-bit`);
-    if (params.lora_rank) parts.push(`rank=${params.lora_rank}`);
-    if (params.pruning_ratio) parts.push(`sparsity=${(Number(params.pruning_ratio) * 100).toFixed(0)}%`);
-    if (params.asvd_rank_ratio) parts.push(`ratio=${params.asvd_rank_ratio}`);
-    if (params.pipeline_name) parts.push(String(params.pipeline_name));
-
-    return parts.join(', ') || 'default params';
-  };
-
   return (
     <div className="border border-gray-200 rounded-lg overflow-hidden bg-white">
       {/* Collapsed Header */}
@@ -93,7 +79,9 @@ function EpisodeCard({ episode, isExpanded, onToggle }: {
 
           {/* Pareto Star */}
           {episode.is_pareto && (
-            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" title="Pareto Optimal" />
+            <span title="Pareto Optimal">
+              <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+            </span>
           )}
         </div>
 

@@ -8,7 +8,6 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useExperiment, useExperimentEpisodes } from '../hooks/useJobs';
-import { formatRelativeTime } from '../hooks/usePolling';
 import { MetricsCard, CompressionRatioMetric } from '../components/MetricsCard';
 import {
   AccuracyVsLatencyChart,

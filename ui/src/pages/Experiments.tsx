@@ -6,7 +6,6 @@ import {
   PlusCircle,
   Search,
   CheckCircle2,
-  Clock,
   XCircle,
   Zap,
   HardDrive,
