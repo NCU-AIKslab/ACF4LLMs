@@ -86,6 +86,45 @@ def _load_model_and_tokenizer(checkpoint_path: str, device: str = "cuda"):
     return model, tokenizer
 
 
+from contextlib import contextmanager
+from typing import Generator, Tuple
+
+@contextmanager
+def evaluation_context(checkpoint_path: str, device: str = "cuda") -> Generator[Tuple[Any, Any], None, None]:
+    """Context manager for safe model loading during evaluation.
+
+    Ensures proper cleanup of model and GPU memory after evaluation,
+    including synchronization to prevent illegal memory access errors.
+
+    Args:
+        checkpoint_path: Path to the model checkpoint
+        device: Device to load model on
+
+    Yields:
+        Tuple of (model, tokenizer)
+    """
+    import gc
+    model = None
+    tokenizer = None
+
+    try:
+        model, tokenizer = _load_model_and_tokenizer(checkpoint_path, device)
+        yield model, tokenizer
+    finally:
+        if model is not None:
+            try:
+                if hasattr(model, 'cpu'):
+                    model.cpu()
+            except Exception:
+                pass
+            del model
+
+        if torch.cuda.is_available():
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+
 def _mock_evaluate_model(benchmarks: List[str], use_proxy: bool, device: str) -> Dict[str, Any]:
     """Fallback mock evaluation when real evaluation fails."""
     benchmark_scores = {}
@@ -313,10 +352,13 @@ def measure_inference_latency(
                 num_iterations=num_runs,
             )
 
-            # Clean up
+            # Clean up with synchronization
             del model
             if torch.cuda.is_available():
+                import gc
+                gc.collect()
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
 
             print(f"[Latency] Mean: {results['mean_latency_ms']:.1f} ms (±{results['std_latency_ms']:.1f} ms)")
             print(f"[Latency] Throughput: {results['throughput_tokens_per_sec']:.1f} tokens/sec")
@@ -429,10 +471,13 @@ def measure_memory_usage(
 
             inference_memory_gb = peak_memory_gb - model_size_gb
 
-            # Clean up
+            # Clean up with synchronization
             del model
             if torch.cuda.is_available():
+                import gc
+                gc.collect()
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
 
             print(f"[Memory] Model size: {model_size_gb:.1f} GB")
             print(f"[Memory] Peak usage: {peak_memory_gb:.1f} GB")
@@ -619,10 +664,13 @@ def measure_perplexity(
                 max_samples=max_samples,
             )
 
-            # Clean up
+            # Clean up with synchronization
             del model
             if torch.cuda.is_available():
+                import gc
+                gc.collect()
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
 
             print(f"[Perplexity] Perplexity: {results['perplexity']:.2f}")
             print(f"[Perplexity] Bits per byte: {results['bits_per_byte']:.4f}")
@@ -851,10 +899,13 @@ def estimate_energy_consumption(
         energy_per_inference_joules = total_energy_joules / num_inferences
         co2_grams = emissions_kg * 1000
 
-        # Clean up
+        # Clean up with synchronization
         del model
         if torch.cuda.is_available():
+            import gc
+            gc.collect()
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
 
         print(f"[Energy] Total energy: {energy_kwh:.6f} kWh ({total_energy_joules:.1f} J)")
         print(f"[Energy] Per inference: {energy_per_inference_joules:.4f} J")
@@ -885,9 +936,12 @@ def estimate_energy_consumption(
             model, tokenizer = _load_model_and_tokenizer(checkpoint_path, device)
             pynvml_results = _measure_energy_with_pynvml(model, tokenizer, num_inferences, device)
 
-            # Clean up
+            # Clean up with synchronization
             del model
+            import gc
+            gc.collect()
             torch.cuda.empty_cache()
+            torch.cuda.synchronize()
 
             if pynvml_results is not None:
                 print(f"[Energy/pynvml] Total energy: {pynvml_results['energy_kwh']:.6f} kWh ({pynvml_results['total_energy_joules']:.1f} J)")

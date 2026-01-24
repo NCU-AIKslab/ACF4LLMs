@@ -589,6 +589,18 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         params = state.get("action_params", {})
         method = params.get("method", "gptq")
 
+        # Pre-episode resource check
+        model_size = state.get("model_spec", {}).get("model_size_gb", 7.0)
+        can_proceed, warning = self._pre_episode_resource_check(method, model_size)
+        if not can_proceed:
+            print(f"  [Resource] {warning}")
+            return {
+                "current_strategy": None,
+                "compressed_model_path": None,
+                "error": warning,
+                "should_skip_evaluation": True,
+            }
+
         # Handle ASVD compression
         if method == "asvd":
             rank_ratio = params.get("rank_ratio", 0.5)
@@ -621,6 +633,17 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
                 })
                 compressed_path = result.get("checkpoint_path", f"data/checkpoints/{strategy.strategy_id}")
                 print(f"  ASVD-compressed model saved to: {compressed_path}")
+            except RuntimeError as e:
+                from src.common.gpu_utils import handle_cuda_error, CUDAErrorRecovery
+                is_recoverable, error_type = handle_cuda_error(e)
+                if error_type == "oom":
+                    print(f"  [CUDA] OOM detected, attempting recovery...")
+                    CUDAErrorRecovery.attempt_oom_recovery()
+                elif error_type == "illegal_memory_access":
+                    print(f"  [CUDA] Fatal error detected, resetting state...")
+                    CUDAErrorRecovery.reset_cuda_state()
+                print(f"  ASVD compression failed: {e}")
+                compressed_path = None
             except Exception as e:
                 print(f"  ASVD compression failed: {e}")
                 compressed_path = None
@@ -674,6 +697,17 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
                     })
                 compressed_path = result.get("checkpoint_path", f"data/checkpoints/{strategy.strategy_id}")
                 print(f"  Adapter saved to: {compressed_path}")
+            except RuntimeError as e:
+                from src.common.gpu_utils import handle_cuda_error, CUDAErrorRecovery
+                is_recoverable, error_type = handle_cuda_error(e)
+                if error_type == "oom":
+                    print(f"  [CUDA] OOM detected, attempting recovery...")
+                    CUDAErrorRecovery.attempt_oom_recovery()
+                elif error_type == "illegal_memory_access":
+                    print(f"  [CUDA] Fatal error detected, resetting state...")
+                    CUDAErrorRecovery.reset_cuda_state()
+                print(f"  {method.upper()} fine-tuning failed: {e}")
+                compressed_path = None
             except Exception as e:
                 print(f"  {method.upper()} fine-tuning failed: {e}")
                 compressed_path = None
@@ -714,6 +748,17 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
                 })
                 compressed_path = result.get("checkpoint_path", f"data/checkpoints/{strategy.strategy_id}")
                 print(f"  Compressed model saved to: {compressed_path}")
+            except RuntimeError as e:
+                from src.common.gpu_utils import handle_cuda_error, CUDAErrorRecovery
+                is_recoverable, error_type = handle_cuda_error(e)
+                if error_type == "oom":
+                    print(f"  [CUDA] OOM detected, attempting recovery...")
+                    CUDAErrorRecovery.attempt_oom_recovery()
+                elif error_type == "illegal_memory_access":
+                    print(f"  [CUDA] Fatal error detected, resetting state...")
+                    CUDAErrorRecovery.reset_cuda_state()
+                print(f"  Quantization failed: {e}")
+                compressed_path = None
             except Exception as e:
                 print(f"  Quantization failed: {e}")
                 compressed_path = None
@@ -742,6 +787,18 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         method = params.get("method", "magnitude")
         sparsity = params.get("sparsity", 0.3)
         granularity = params.get("granularity", "weight")
+
+        # Pre-episode resource check
+        model_size = state.get("model_spec", {}).get("model_size_gb", 7.0)
+        can_proceed, warning = self._pre_episode_resource_check("pruning", model_size)
+        if not can_proceed:
+            print(f"  [Resource] {warning}")
+            return {
+                "current_strategy": None,
+                "compressed_model_path": None,
+                "error": warning,
+                "should_skip_evaluation": True,
+            }
 
         print(f"  Applying {method} pruning with {sparsity*100:.0f}% sparsity...")
 
@@ -772,6 +829,17 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
             })
             compressed_path = result.get("checkpoint_path", f"data/checkpoints/{strategy.strategy_id}")
             print(f"  Pruned model saved to: {compressed_path}")
+        except RuntimeError as e:
+            from src.common.gpu_utils import handle_cuda_error, CUDAErrorRecovery
+            is_recoverable, error_type = handle_cuda_error(e)
+            if error_type == "oom":
+                print(f"  [CUDA] OOM detected, attempting recovery...")
+                CUDAErrorRecovery.attempt_oom_recovery()
+            elif error_type == "illegal_memory_access":
+                print(f"  [CUDA] Fatal error detected, resetting state...")
+                CUDAErrorRecovery.reset_cuda_state()
+            print(f"  Pruning failed: {e}")
+            compressed_path = None
         except Exception as e:
             print(f"  Pruning failed: {e}")
             compressed_path = None
@@ -801,6 +869,18 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
         """
         params = state.get("action_params", {})
         pipeline_name = params.get("pipeline_name", "balanced_quality")
+
+        # Pre-episode resource check for pipeline
+        model_size = state.get("model_spec", {}).get("model_size_gb", 7.0)
+        can_proceed, warning = self._pre_episode_resource_check("pipeline", model_size)
+        if not can_proceed:
+            print(f"  [Resource] {warning}")
+            return {
+                "current_strategy": None,
+                "compressed_model_path": None,
+                "error": warning,
+                "should_skip_evaluation": True,
+            }
 
         print(f"  Executing pipeline: {pipeline_name}")
 
@@ -850,6 +930,20 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
                 compression_ratio = 1.0
                 model_size_gb = state["model_spec"].get("model_size_gb", 1.0)
 
+        except RuntimeError as e:
+            from src.common.gpu_utils import handle_cuda_error, CUDAErrorRecovery
+            is_recoverable, error_type = handle_cuda_error(e)
+            if error_type == "oom":
+                print(f"  [CUDA] OOM detected, attempting recovery...")
+                CUDAErrorRecovery.attempt_oom_recovery()
+            elif error_type == "illegal_memory_access":
+                print(f"  [CUDA] Fatal error detected, resetting state...")
+                CUDAErrorRecovery.reset_cuda_state()
+            print(f"  Pipeline execution error: {e}")
+            compressed_path = None
+            compression_ratio = 1.0
+            model_size_gb = state["model_spec"].get("model_size_gb", 1.0)
+            result = None
         except Exception as e:
             print(f"  Pipeline execution error: {e}")
             compressed_path = None
@@ -1055,13 +1149,60 @@ For pipeline: {{"action": "pipeline", "pipeline_name": "aggressive_compression|a
             "bandit_rewards": rewards_history,
         }
 
-    def _cleanup_gpu_memory(self):
-        """Force GPU memory cleanup between episodes."""
-        import gc
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            torch.cuda.synchronize()
+    def _cleanup_gpu_memory(self, force: bool = False) -> Dict[str, float]:
+        """Force GPU memory cleanup between episodes.
+
+        Uses robust cleanup with synchronization to prevent memory
+        fragmentation and illegal memory access errors.
+
+        Args:
+            force: If True, perform more aggressive cleanup
+
+        Returns:
+            Dictionary with cleanup statistics
+        """
+        from src.common.gpu_utils import robust_gpu_cleanup
+        result = robust_gpu_cleanup(force_gc=True, reset_peak_stats=True)
+        if result.get("freed_gb", 0) > 0.1:
+            print(f"  [GPU] Freed {result['freed_gb']:.2f} GB memory")
+        return result
+
+    def _pre_episode_resource_check(
+        self,
+        method: str,
+        model_size_gb: float
+    ) -> tuple[bool, str]:
+        """Check if sufficient resources are available before starting episode.
+
+        Args:
+            method: The compression method to be used
+            model_size_gb: Size of the model in GB
+
+        Returns:
+            Tuple of (can_proceed, warning_message)
+        """
+        from src.common.gpu_utils import check_gpu_memory_available, robust_gpu_cleanup, estimate_operation_vram
+
+        # Estimate required VRAM based on operation type
+        if method in ["lora", "qlora"]:
+            required_gb = estimate_operation_vram(model_size_gb, method)
+        elif method in ["autoround", "gptq", "awq", "int8", "asvd"]:
+            required_gb = estimate_operation_vram(model_size_gb, "quantization")
+        else:
+            required_gb = model_size_gb * 2.5
+
+        is_available, available_gb = check_gpu_memory_available(required_gb)
+
+        if not is_available:
+            # Attempt cleanup and recheck
+            print(f"  [Resource] Low VRAM ({available_gb:.1f} GB), attempting cleanup...")
+            robust_gpu_cleanup(force_gc=True)
+            is_available, available_gb = check_gpu_memory_available(required_gb)
+
+            if not is_available:
+                return False, f"Insufficient VRAM: need {required_gb:.1f}GB, have {available_gb:.1f}GB"
+
+        return True, ""
 
     def _update_state_node(self, state: CompressionState) -> Dict[str, Any]:
         """Update state after evaluation.

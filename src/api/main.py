@@ -1,7 +1,9 @@
 """FastAPI application for compression framework."""
 
 import os
+import sys
 import threading
+from collections import deque
 from fastapi import FastAPI, BackgroundTasks, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,10 +15,40 @@ from datetime import datetime
 from pathlib import Path
 import json
 
-from src.coordinator.coordinator import CompressionCoordinator
+from src.coordinator.langgraph_coordinator import LangGraphCoordinator
 from src.coordinator.spec_inference import infer_spec
 from src.common.schemas import CompressionMethod, Benchmark
-from src.monitoring.mlflow_tracker import create_experiment_tracker
+
+
+class LogCapture:
+    """Capture stdout and store logs in job storage."""
+
+    def __init__(self, job_id: str, storage: "ThreadSafeJobStorage", max_lines: int = 1000):
+        self.job_id = job_id
+        self.storage = storage
+        self.logs: deque = deque(maxlen=max_lines)
+        self._original_stdout = None
+
+    def write(self, text: str):
+        if self._original_stdout:
+            self._original_stdout.write(text)
+        for line in text.splitlines():
+            if line.strip():
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                self.logs.append(f"[{timestamp}] {line}")
+                self.storage.update(self.job_id, logs=list(self.logs))
+
+    def flush(self):
+        if self._original_stdout:
+            self._original_stdout.flush()
+
+    def __enter__(self):
+        self._original_stdout = sys.stdout
+        sys.stdout = self
+        return self
+
+    def __exit__(self, *args):
+        sys.stdout = self._original_stdout
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -139,6 +171,7 @@ async def root():
         "endpoints": {
             "POST /compress": "Start compression job",
             "GET /jobs/{job_id}": "Get job status",
+            "GET /jobs/{job_id}/logs": "Get job logs",
             "GET /jobs": "List all jobs",
             "POST /spec/infer": "Infer model specification",
             "GET /pareto/{job_id}": "Get Pareto frontier",
@@ -185,28 +218,27 @@ async def start_compression(
 
 async def run_compression_job(job_id: str, config: Dict[str, Any]):
     """Run compression job in background."""
+    # Initialize logs in job storage
+    jobs_storage.update(job_id, logs=[])
+
     try:
         # Update status
         jobs_storage.update(job_id, status="running", updated_at=datetime.now())
 
         # Initialize coordinator
-        coordinator = CompressionCoordinator(
+        coordinator = LangGraphCoordinator(
             model_name=config["model_name"],
             dataset=config["dataset"],
             max_episodes=config["max_episodes"],
             budget_hours=24.0,
-            use_mock=config["use_mock"],
         )
 
-        # Set constraints if provided
-        if config.get("constraints"):
-            coordinator.constraints = config["constraints"]
-
-        # Run compression
-        result = await asyncio.to_thread(
-            coordinator.run,
-            interactive=False,
-        )
+        # Run compression with log capture
+        with LogCapture(job_id, jobs_storage) as log_capture:
+            result = await asyncio.to_thread(
+                coordinator.run,
+                interactive=False,
+            )
 
         # Update with results
         jobs_storage.update(
@@ -235,6 +267,31 @@ async def get_job_status(job_id: str) -> JobStatus:
         raise HTTPException(status_code=404, detail="Job not found")
 
     return JobStatus(**job_data)
+
+
+@app.get("/jobs/{job_id}/logs")
+async def get_job_logs(
+    job_id: str,
+    offset: int = 0,
+    limit: int = 200,
+) -> Dict[str, Any]:
+    """Get logs for a compression job."""
+    job_data = jobs_storage.get(job_id)
+    if job_data is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    logs = job_data.get("logs", [])
+    total = len(logs)
+
+    # Apply pagination
+    paginated_logs = logs[offset:offset + limit]
+
+    return {
+        "logs": paginated_logs,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
 
 
 @app.get("/jobs", response_model=List[JobStatus])

@@ -128,6 +128,14 @@ export interface HealthCheck {
   gpu_count: string;
 }
 
+// Logs response from API
+export interface LogsResponse {
+  logs: string[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 // Chart data types
 export interface ParetoPoint {
   strategyId: string;

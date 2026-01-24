@@ -93,13 +93,15 @@ def should_trust_remote_code(model_name: str) -> bool:
 
 
 @contextmanager
-def managed_model(model: Any) -> Generator[Any, None, None]:
-    """Context manager for safe model cleanup.
+def managed_model(model: Any, synchronize: bool = True) -> Generator[Any, None, None]:
+    """Context manager for safe model cleanup with synchronization.
 
     Ensures model is deleted and GPU memory is freed even if an exception occurs.
+    The synchronize parameter ensures all CUDA operations complete before cleanup.
 
     Args:
         model: The model to manage
+        synchronize: Whether to synchronize CUDA after cleanup (prevents illegal memory access)
 
     Yields:
         The model for use within the context
@@ -108,11 +110,18 @@ def managed_model(model: Any) -> Generator[Any, None, None]:
         yield model
     finally:
         try:
+            if hasattr(model, 'cpu'):
+                model.cpu()
             del model
         except Exception as e:
             logger.debug(f"Error during model deletion: {e}")
+
         if torch.cuda.is_available():
+            import gc
+            gc.collect()
             torch.cuda.empty_cache()
+            if synchronize:
+                torch.cuda.synchronize()
 
 
 class BaseQuantizer:
@@ -216,11 +225,19 @@ class AutoRoundQuantizer(BaseQuantizer):
                 logger.error(f"AutoRound quantization failed: {e}")
                 return self._mock_quantization(model_name, bit_width, output_dir)
             finally:
-                # Always clean up model resources
+                # Always clean up model resources with synchronization
                 if model is not None:
+                    try:
+                        if hasattr(model, 'cpu'):
+                            model.cpu()
+                    except Exception:
+                        pass
                     del model
                 if torch.cuda.is_available():
+                    import gc
+                    gc.collect()
                     torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
         else:
             return self._mock_quantization(model_name, bit_width, output_dir)
 
@@ -408,11 +425,19 @@ class GPTQQuantizer(BaseQuantizer):
                 logger.error(f"GPTQ quantization failed: {e}")
                 return self._mock_quantization(model_name, bit_width, output_dir)
             finally:
-                # Always clean up model resources
+                # Always clean up model resources with synchronization
                 if gptq_model is not None:
+                    try:
+                        if hasattr(gptq_model, 'cpu'):
+                            gptq_model.cpu()
+                    except Exception:
+                        pass
                     del gptq_model
                 if torch.cuda.is_available():
+                    import gc
+                    gc.collect()
                     torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
         else:
             return self._mock_quantization(model_name, bit_width, output_dir)
 
@@ -719,11 +744,19 @@ class AWQQuantizer(BaseQuantizer):
             logger.warning(f"llm-compressor AWQ quantization failed: {e}, trying AutoAWQ fallback")
             return None
         finally:
-            # Always clean up model resources
+            # Always clean up model resources with synchronization
             if model is not None:
+                try:
+                    if hasattr(model, 'cpu'):
+                        model.cpu()
+                except Exception:
+                    pass
                 del model
             if torch.cuda.is_available():
+                import gc
+                gc.collect()
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
 
     def _quantize_with_autoawq(
         self,
@@ -807,11 +840,19 @@ class AWQQuantizer(BaseQuantizer):
             logger.error(f"AutoAWQ quantization failed: {e}")
             return None
         finally:
-            # Always clean up model resources
+            # Always clean up model resources with synchronization
             if model is not None:
+                try:
+                    if hasattr(model, 'cpu'):
+                        model.cpu()
+                except Exception:
+                    pass
                 del model
             if torch.cuda.is_available():
+                import gc
+                gc.collect()
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
 
     def _get_calibration_texts(self, dataset_name: Optional[str], num_samples: int):
         """Get calibration texts for AWQ."""
@@ -841,8 +882,15 @@ class AWQQuantizer(BaseQuantizer):
         Returns an error result instead of creating invalid empty files.
         This allows the coordinator to handle the failure gracefully.
         """
-        error_msg = "AWQ quantization library not installed. Install: pip install autoawq or pip install llmcompressor"
+        error_msg = (
+            "AWQ quantization library not installed.\n"
+            "Install options:\n"
+            "  Option 1 (recommended): pip install llmcompressor\n"
+            "  Option 2 (legacy): pip install autoawq\n"
+            "Note: Requires CUDA 11.8+ and PyTorch 2.0+"
+        )
         logger.error(error_msg)
+        print(f"[AWQ] {error_msg}")
 
         original_size = estimate_model_size_gb(model_name)
 
@@ -926,11 +974,19 @@ class INT8Quantizer(BaseQuantizer):
                 logger.error(f"INT8 quantization failed: {e}")
                 return self._mock_quantization(model_name, output_dir)
             finally:
-                # Always clean up model resources
+                # Always clean up model resources with synchronization
                 if model is not None:
+                    try:
+                        if hasattr(model, 'cpu'):
+                            model.cpu()
+                    except Exception:
+                        pass
                     del model
                 if torch.cuda.is_available():
+                    import gc
+                    gc.collect()
                     torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
         else:
             return self._mock_quantization(model_name, output_dir)
 
@@ -1133,11 +1189,19 @@ class LoRATrainer(BaseQuantizer):
                 traceback.print_exc()
                 return self._mock_finetune(model_name, lora_rank, output_dir)
             finally:
-                # Always clean up model resources
+                # Always clean up model resources with synchronization
                 if model is not None:
+                    try:
+                        if hasattr(model, 'cpu'):
+                            model.cpu()
+                    except Exception:
+                        pass
                     del model
                 if torch.cuda.is_available():
+                    import gc
+                    gc.collect()
                     torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
         else:
             return self._mock_finetune(model_name, lora_rank, output_dir)
 
@@ -1415,11 +1479,19 @@ class QLoRATrainer(BaseQuantizer):
                 traceback.print_exc()
                 return self._mock_finetune(model_name, lora_rank, bits, output_dir)
             finally:
-                # Always clean up model resources
+                # Always clean up model resources with synchronization
                 if model is not None:
+                    try:
+                        if hasattr(model, 'cpu'):
+                            model.cpu()
+                    except Exception:
+                        pass
                     del model
                 if torch.cuda.is_available():
+                    import gc
+                    gc.collect()
                     torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
         else:
             return self._mock_finetune(model_name, lora_rank, bits, output_dir)
 
@@ -1698,11 +1770,19 @@ class ASVDCompressor(BaseQuantizer):
             traceback.print_exc()
             return self._mock_compression(model_name, rank_ratio, output_dir)
         finally:
-            # Always clean up model resources
+            # Always clean up model resources with synchronization
             if model is not None:
+                try:
+                    if hasattr(model, 'cpu'):
+                        model.cpu()
+                except Exception:
+                    pass
                 del model
             if torch.cuda.is_available():
+                import gc
+                gc.collect()
                 torch.cuda.empty_cache()
+                torch.cuda.synchronize()
 
     def _get_calibration_data(
         self, tokenizer, dataset_name: Optional[str], num_samples: int

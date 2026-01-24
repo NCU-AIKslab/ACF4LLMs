@@ -7,6 +7,7 @@ import type {
   HealthCheck,
   CompressionMethod,
   Benchmark,
+  LogsResponse,
 } from '../types';
 
 // API base URL - uses proxy in development, env variable in production
@@ -68,6 +69,15 @@ export const jobsApi = {
   // Get Pareto frontier for a job
   getPareto: async (jobId: string): Promise<ParetoFrontier> => {
     const response = await api.get<ParetoFrontier>(`/pareto/${jobId}`);
+    return response.data;
+  },
+
+  // Get logs for a job
+  getLogs: async (jobId: string, offset: number = 0, limit: number = 200): Promise<LogsResponse> => {
+    const params = new URLSearchParams();
+    params.append('offset', offset.toString());
+    params.append('limit', limit.toString());
+    const response = await api.get<LogsResponse>(`/jobs/${jobId}/logs?${params}`);
     return response.data;
   },
 };

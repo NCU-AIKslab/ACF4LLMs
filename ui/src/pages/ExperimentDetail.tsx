@@ -1,4 +1,5 @@
 import { useParams, Link } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
 import {
   ArrowLeft,
   Loader2,
@@ -7,8 +8,9 @@ import {
   Clock,
   Download,
   RefreshCw,
+  Terminal,
 } from 'lucide-react';
-import { useJob, usePareto } from '../hooks/useJobs';
+import { useJob, usePareto, useLogs } from '../hooks/useJobs';
 import { formatRelativeTime } from '../hooks/usePolling';
 import { MetricsCard, CompressionRatioMetric } from '../components/MetricsCard';
 import {
@@ -39,6 +41,16 @@ export function ExperimentDetail() {
   const { data: pareto, isLoading: paretoLoading } = usePareto(
     job?.status === 'completed' ? jobId : undefined
   );
+  const isRunningOrPending = job?.status === 'running' || job?.status === 'pending';
+  const { data: logsData } = useLogs(jobId, isRunningOrPending);
+
+  // Auto-scroll logs to bottom
+  const logsEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (logsEndRef.current && isRunningOrPending) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logsData?.logs, isRunningOrPending]);
 
   if (jobLoading) {
     return (
@@ -139,6 +151,29 @@ export function ExperimentDetail() {
           <span>Pareto Solutions: {job.progress.pareto_solutions}</span>
         </div>
       </div>
+
+      {/* Logs Panel */}
+      {logsData && logsData.logs.length > 0 && (
+        <div className="bg-gray-900 rounded-lg border border-gray-700 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+            <div className="flex items-center gap-2 text-gray-300">
+              <Terminal className="w-4 h-4" />
+              <span className="text-sm font-medium">Logs</span>
+            </div>
+            <span className="text-xs text-gray-500">
+              {logsData.total} {logsData.total === 1 ? 'line' : 'lines'}
+            </span>
+          </div>
+          <div className="h-64 overflow-y-auto p-4 font-mono text-sm">
+            {logsData.logs.map((log, index) => (
+              <div key={index} className="text-green-400 whitespace-pre-wrap break-all">
+                {log}
+              </div>
+            ))}
+            <div ref={logsEndRef} />
+          </div>
+        </div>
+      )}
 
       {/* Error message */}
       {job.error && (

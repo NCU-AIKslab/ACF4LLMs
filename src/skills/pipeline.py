@@ -4,6 +4,7 @@ This module provides the ability to chain multiple compression skills
 together in a pipeline, with support for conditional execution.
 """
 
+import gc
 import json
 import logging
 import time
@@ -11,6 +12,8 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
+
+import torch
 
 from src.skills.schema import (
     PipelineStep,
@@ -281,6 +284,9 @@ class CompressionPipeline:
                     logger.error(f"Step {i+1} failed: {result.get('error')}")
                     break
 
+                # Clean up GPU memory between steps
+                self._cleanup_gpu_between_steps()
+
             # Build final result
             total_time = time.time() - start_time
 
@@ -471,6 +477,21 @@ class CompressionPipeline:
                 logger.debug(f"Archived checkpoint: {checkpoint_path} -> {dst_path}")
         except Exception as e:
             logger.warning(f"Failed to archive checkpoint {checkpoint_path}: {e}")
+
+    def _cleanup_gpu_between_steps(self) -> None:
+        """Clean up GPU memory between pipeline steps.
+
+        This helps prevent memory fragmentation and OOM errors when
+        executing multi-step pipelines.
+        """
+        try:
+            if torch.cuda.is_available():
+                gc.collect()
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                logger.debug("GPU memory cleaned up between pipeline steps")
+        except Exception as e:
+            logger.debug(f"GPU cleanup failed: {e}")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert pipeline to dictionary representation.

@@ -442,28 +442,37 @@ def optimize_batch_size(
 
 
 @tool
-def clear_gpu_cache() -> Dict[str, Any]:
+def clear_gpu_cache(aggressive: bool = False) -> Dict[str, Any]:
     """Clear GPU memory cache to free up VRAM.
+
+    Args:
+        aggressive: If True, perform multiple cleanup passes and GC
 
     Returns:
         Dictionary with cleared memory info
     """
-    print("[Cache] Clearing GPU cache...")
-
-    before_free = 0
-    after_free = 0
+    print(f"[Cache] Clearing GPU cache {'(aggressive)' if aggressive else ''}...")
 
     error_msg = "No GPU available"
     try:
         import torch
+        import gc
 
         if torch.cuda.is_available():
             # Get before stats
             before_allocated = torch.cuda.memory_allocated() / (1024**3)
             before_reserved = torch.cuda.memory_reserved() / (1024**3)
 
-            # Clear cache
-            torch.cuda.empty_cache()
+            if aggressive:
+                # Multiple cleanup passes for aggressive mode
+                for _ in range(3):
+                    gc.collect()
+                    torch.cuda.empty_cache()
+            else:
+                gc.collect()
+                torch.cuda.empty_cache()
+
+            # Synchronize to ensure operations complete
             torch.cuda.synchronize()
 
             # Get after stats
@@ -487,6 +496,84 @@ def clear_gpu_cache() -> Dict[str, Any]:
         print(f"[Cache] Error clearing cache: {e}")
 
     return {"success": False, "error": error_msg}
+
+
+@tool
+def check_cuda_health() -> Dict[str, Any]:
+    """Check CUDA device health and detect potential issues.
+
+    This tool provides diagnostics for GPU memory issues including
+    fragmentation detection and memory availability checks.
+
+    Returns:
+        Dictionary with health information:
+        - cuda_available: Whether CUDA is available
+        - healthy: Whether the device appears healthy
+        - issues: List of detected issues
+        - recommendations: List of recommendations
+    """
+    print("[Health] Checking CUDA device health...")
+
+    health: Dict[str, Any] = {
+        "cuda_available": False,
+        "healthy": False,
+        "issues": [],
+        "recommendations": [],
+    }
+
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            health["issues"].append("CUDA not available")
+            return health
+
+        health["cuda_available"] = True
+
+        for i in range(torch.cuda.device_count()):
+            props = torch.cuda.get_device_properties(i)
+            allocated = torch.cuda.memory_allocated(i) / (1024**3)
+            reserved = torch.cuda.memory_reserved(i) / (1024**3)
+            total = props.total_memory / (1024**3)
+
+            # Check fragmentation (high ratio of reserved but unallocated memory)
+            if reserved > 0 and (reserved - allocated) / reserved > 0.3:
+                health["issues"].append(
+                    f"GPU {i}: High memory fragmentation "
+                    f"({(reserved - allocated):.2f} GB reserved but unallocated)"
+                )
+                health["recommendations"].append("Run clear_gpu_cache(aggressive=True)")
+
+            # Check available memory
+            if total - allocated < 1.0:
+                health["issues"].append(f"GPU {i}: Low available memory ({(total - allocated):.2f} GB)")
+                health["recommendations"].append("Consider using smaller batch sizes or model offloading")
+
+            # Check utilization
+            utilization = allocated / total if total > 0 else 0
+            if utilization > 0.95:
+                health["issues"].append(f"GPU {i}: Very high memory utilization ({utilization:.0%})")
+
+        # Test CUDA responsiveness with a simple operation
+        test_tensor = torch.zeros(1, device='cuda')
+        del test_tensor
+        torch.cuda.synchronize()
+
+        health["healthy"] = len(health["issues"]) == 0
+
+        if health["healthy"]:
+            print("[Health] CUDA device is healthy")
+        else:
+            print(f"[Health] Found {len(health['issues'])} issues")
+            for issue in health["issues"]:
+                print(f"  - {issue}")
+
+    except Exception as e:
+        health["issues"].append(f"Health check failed: {e}")
+        health["healthy"] = False
+        print(f"[Health] Check failed: {e}")
+
+    return health
 
 
 def get_resource_monitor_subagent(spec: Dict[str, Any]) -> Dict[str, Any]:
@@ -521,6 +608,7 @@ Available tools:
 - preflight_check: Verify readiness for compression
 - optimize_batch_size: Calculate optimal batch size
 - clear_gpu_cache: Free up GPU memory
+- check_cuda_health: Diagnose GPU issues and fragmentation
 
 Monitoring Strategy:
 1. Always run preflight checks before compression
@@ -554,6 +642,7 @@ When you receive a monitoring request:
             preflight_check,
             optimize_batch_size,
             clear_gpu_cache,
+            check_cuda_health,
         ],
         "model": "anthropic:claude-3-haiku-20240307",
     }

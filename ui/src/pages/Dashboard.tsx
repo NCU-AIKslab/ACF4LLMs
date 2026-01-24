@@ -10,6 +10,7 @@ import {
 import { useJobs, useHealth } from '../hooks/useJobs';
 import { MetricsCard } from '../components/MetricsCard';
 import { JobCard } from '../components/JobCard';
+import { ArchitectureDiagram } from '../components/ArchitectureDiagram';
 
 export function Dashboard() {
   const { data: jobs, isLoading } = useJobs();
@@ -100,6 +101,9 @@ export function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Agent Architecture Diagram */}
+      <ArchitectureDiagram />
 
       {/* Running Jobs */}
       {runningJobs.length > 0 && (

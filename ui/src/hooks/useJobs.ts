@@ -7,6 +7,7 @@ export const queryKeys = {
   jobs: ['jobs'] as const,
   job: (id: string) => ['job', id] as const,
   pareto: (id: string) => ['pareto', id] as const,
+  logs: (id: string) => ['logs', id] as const,
   health: ['health'] as const,
   methods: ['methods'] as const,
   benchmarks: ['benchmarks'] as const,
@@ -45,6 +46,16 @@ export function usePareto(jobId: string | undefined) {
     queryKey: queryKeys.pareto(jobId || ''),
     queryFn: () => jobsApi.getPareto(jobId!),
     enabled: !!jobId,
+  });
+}
+
+// Fetch job logs with polling for running jobs
+export function useLogs(jobId: string | undefined, isRunning: boolean = false) {
+  return useQuery({
+    queryKey: queryKeys.logs(jobId || ''),
+    queryFn: () => jobsApi.getLogs(jobId!),
+    enabled: !!jobId,
+    refetchInterval: isRunning ? 2000 : false, // Poll every 2 seconds for running jobs
   });
 }
 
