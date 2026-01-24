@@ -1,9 +1,7 @@
 # Cloudflare Pages configuration
-# For Pages deployment, use: wrangler pages deploy dist --project-name=greenai-dashboard
-# Or configure in Cloudflare Dashboard with Build output directory: dist
-
-name = "name = 'acf4llms'"
+name = "acf4llms"
 compatibility_date = "2026-01-24"
+pages_build_output_dir = "dist"
 
 # Environment variables for local dev (production vars set in Cloudflare Dashboard)
 [vars]
