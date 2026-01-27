@@ -54,8 +54,8 @@ if [ ! -f ~/.cloudflared/config.yml ]; then
 fi
 
 # Start FastAPI backend
-echo "[3/4] Starting FastAPI backend on port 8000..."
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000 &
+echo "[3/4] Starting FastAPI backend on port 60001..."
+uvicorn src.api.main:app --host 0.0.0.0 --port 60001 &
 BACKEND_PID=$!
 
 sleep 3
